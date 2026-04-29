@@ -23,7 +23,7 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_URL}/upload`, {
+  const response = await fetch(`${API_URL}/api/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -39,7 +39,7 @@ export async function sendMessage(
   sessionId: string,
   message: string
 ): Promise<ChatResponse> {
-  const response = await fetch(`${API_URL}/chat`, {
+  const response = await fetch(`${API_URL}/api/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

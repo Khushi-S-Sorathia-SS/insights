@@ -351,6 +351,4 @@ For issues or questions:
 
 Contributions are welcome! Please follow the development workflow above and ensure tests pass.
 
----
 
-**Made with ❤️ for data analysis**

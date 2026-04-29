@@ -10,11 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import get_settings
+from .routes.chat import router as chat_router
+from .routes.upload import router as upload_router
 from .utils.error_handler import InsightsException
 from .utils.logger import get_logger
-
-# Import routes (to be created in Phase 7)
-# from routes import upload, chat
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -105,9 +104,9 @@ async def root():
     }
 
 
-# Include routers (to be added in Phase 7)
-# app.include_router(upload.router, prefix="/api", tags=["Upload"])
-# app.include_router(chat.router, prefix="/api", tags=["Chat"])
+# Include routers
+app.include_router(upload_router, prefix="/api", tags=["Upload"])
+app.include_router(chat_router, prefix="/api", tags=["Chat"])
 
 
 if __name__ == "__main__":
