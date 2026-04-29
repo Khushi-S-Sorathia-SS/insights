@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  backend:
+    container_name: insights-backend
+    build:
+      context: .
+      dockerfile: docker/backend.dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - /tmp/uploads:/tmp/uploads
+    environment:
+      - FASTAPI_HOST=0.0.0.0
+      - FASTAPI_PORT=8000
+      - FASTAPI_ENV=development
+      - DEBUG=true
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SANDBOX_TIMEOUT=20
+      - ALLOWED_ORIGINS=http://localhost:3000
+    command: python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - insights-network
+    depends_on:
+      - redis
+      - mongodb
+
+  # Next.js Frontend
+  frontend:
+    container_name: insights-frontend
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend.dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    networks:
+      - insights-network
+    depends_on:
+      - backend
+
+  # Redis (Optional - for session caching in post-MVP)
+  redis:
+    container_name: insights-redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - insights-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MongoDB (Optional - for logging in post-MVP)
+  mongodb:
+    container_name: insights-mongodb
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: insights_chatbot
+    networks:
+      - insights-network
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:
+  mongodb-data:
+
+networks:
+  insights-network:
+    driver: bridge
