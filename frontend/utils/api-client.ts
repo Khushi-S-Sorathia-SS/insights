@@ -5,10 +5,22 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+export interface UploadMetadata {
+  filename: string;
+  file_path: string;
+  rows: number;
+  columns: string[];
+  dtypes: Record<string, string>;
+  missing_values: Record<string, number>;
+  preview_rows: Array<Record<string, string | number | null>>;
+}
+
 interface UploadResponse {
   session_id: string;
   message: string;
-  metadata: Record<string, any>;
+  metadata: UploadMetadata;
+  default_chart_urls?: string[];
+  auto_insights?: string;
 }
 
 interface ChatResponse {

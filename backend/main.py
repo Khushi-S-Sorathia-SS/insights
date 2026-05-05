@@ -14,6 +14,7 @@ from .routes.chat import router as chat_router
 from .routes.upload import router as upload_router
 from .utils.error_handler import InsightsException
 from .utils.logger import get_logger
+from .utils.langsmith_tracer import get_langsmith_tracer
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -27,6 +28,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.FASTAPI_ENV}")
     logger.info(f"Debug: {settings.DEBUG}")
     logger.info(f"Upload directory: {settings.UPLOAD_DIR}")
+    
+    # Initialize LangSmith tracing
+    tracer = get_langsmith_tracer()
+    tracer.initialize()
 
     yield
 

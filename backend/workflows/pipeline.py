@@ -1,5 +1,7 @@
 """
 Pipeline orchestration for processing chat queries.
+Deep Agent analysis executes via DaytonaSandbox in backend/workflows/agent_planner.py.
+Integrated with LangSmith for execution tracing.
 """
 
 import pandas as pd
@@ -8,16 +10,23 @@ from typing import Optional
 
 from ..models.session import ChatResponse
 from ..storage.session_manager import session_manager
-from ..sandbox.executor import run_code_in_sandbox
 from ..workflows.agent_planner import generate_analysis_code
 from ..workflows.intent_classifier import IntentType, classify_intent
 from ..workflows.response_formatter import format_sandbox_response
 from ..utils.error_handler import SandboxError, SessionError
+from ..utils.langsmith_tracer import trace_function, create_run_context
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
+@trace_function(name="process_chat_request", tags=["chat", "pipeline"])
 def process_chat_request(session_id: str, user_input: str) -> ChatResponse:
+    """Process a chat request and return a response with analysis."""
     session = session_manager.get_session(session_id)
     session.add_message("user", user_input)
+    
+    logger.info(f"Processing chat request. Session: {session_id}, Query: {user_input[:50]}...")
 
     if not session.dataset:
         raise SessionError("No dataset has been uploaded for this session.")
@@ -30,15 +39,31 @@ def process_chat_request(session_id: str, user_input: str) -> ChatResponse:
         session.add_message("assistant", response.content)
         return response
 
-    code = generate_analysis_code(user_input, session.dataset)
-    sandbox_output = run_code_in_sandbox(code, session.session_id, session.dataset.file_path)
-    response = format_sandbox_response(sandbox_output)
+    # generate_analysis_code now returns a dict with output and charts
+    result = generate_analysis_code(user_input, session.dataset)
+    output_text = result.get("output", "")
+    charts = result.get("charts", [])
+    
+    logger.info("Generated analysis code for chat input: %s", output_text[:100])
+    
+    # Format the response with charts
+    from ..models.session import ChatResponse
+    formatted_content = output_text
+    if charts:
+        formatted_content += f"\n\n[{len(charts)} charts generated]"
+
+    chart_url = None
+    if charts:
+        first_chart = charts[0]
+        chart_url = first_chart if first_chart.startswith("data:") else f"data:image/png;base64,{first_chart}"
+
+    response = ChatResponse(content=formatted_content, chart_url=chart_url, execution_time_ms=0)
     session.add_message(
         "assistant",
         response.content,
         analysis_result={
-            "chart_url": response.chart_url,
-            "execution_time_ms": response.execution_time_ms,
+            "charts": charts,
+            "execution_time_ms": 0,
         },
     )
     return response

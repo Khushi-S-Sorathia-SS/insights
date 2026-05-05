@@ -5,7 +5,7 @@ CSV upload and dataset metadata extraction.
 import io
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import pandas as pd
 from fastapi import UploadFile
@@ -54,6 +54,7 @@ class FileManager:
 
         missing_values = {str(col): int(df[col].isna().sum()) for col in df.columns}
         dtypes = {str(col): str(df[col].dtype) for col in df.columns}
+        preview_rows = df.head(5).fillna("").to_dict(orient="records")
 
         metadata = DatasetMetadata(
             filename=filename,
@@ -62,6 +63,7 @@ class FileManager:
             columns=[str(col) for col in df.columns],
             dtypes=dtypes,
             missing_values=missing_values,
+            preview_rows=preview_rows,
             size_bytes=size_bytes,
             uploaded_at=datetime.utcnow(),
         )

@@ -1,5 +1,7 @@
 """
 Runs generated Python code inside an isolated sandbox subprocess.
+This helper is a standalone sandbox executor; the Deep Agents workflow uses DaytonaSandbox in backend/workflows/agent_planner.py.
+Integrated with LangSmith for execution tracing.
 """
 
 import base64
@@ -13,13 +15,18 @@ from typing import Dict
 
 from ..config import get_settings
 from ..utils.error_handler import SandboxRuntimeError, SandboxTimeoutError
+from ..utils.logger import get_logger
+from ..utils.langsmith_tracer import trace_function
 from .code_validator import validate_code
 
+logger = get_logger(__name__)
 settings = get_settings()
 
 
+@trace_function(name="run_code_in_sandbox", tags=["sandbox", "execution"])
 def run_code_in_sandbox(code: str, session_id: str, file_path: str) -> Dict[str, object]:
     """Execute sandboxed Python code safely and return output payload."""
+    logger.debug(f"Executing code in sandbox for session: {session_id}")
     validate_code(code)
 
     with tempfile.TemporaryDirectory(prefix=f"sandbox_{session_id}_") as temp_dir:

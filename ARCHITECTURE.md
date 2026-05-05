@@ -35,9 +35,9 @@ This document describes the system architecture, data flow, and component intera
           ┌────────────────────┼────────────────────┐
           │                    │                    │
       ┌───▼────┐        ┌──────▼──────┐     ┌──────▼──────┐
-      │ SESSION │        │  LANGGRAPH  │     │  SANDBOX    │
-      │ MANAGER │        │  WORKFLOW   │     │  EXECUTOR   │
-      │(In-Mem) │        │  (Routing)  │     │ (Subprocess)│
+      │ SESSION │        │  LANGGRAPH  │     │  DAYTONA    │
+      │ MANAGER │        │  WORKFLOW   │     │  SANDBOX    │
+      │(In-Mem) │        │  (Routing)  │     │ (agent_planner)│
       └────┬────┘        └──────┬──────┘     └──────┬──────┘
            │                    │                    │
            │              ┌─────▼──────────┐        │
@@ -57,7 +57,7 @@ This document describes the system architecture, data flow, and component intera
            │              ┌──────▼──────────┐                │
            │              │ Agent Planner   │                │
            │              │ (LangChain +    │                │
-           │              │  Gemini 2.5)    │                │
+           │              │  Azure OpenAI)  │                │
            │              └──────┬──────────┘                │
            │                     │                            │
            │              ┌──────▼──────────┐                │
@@ -196,25 +196,12 @@ User sends: "Show department salary chart"
           │         │
           │         ▼
           │  ┌─────────────────────┐
-          │  │ Code Validator      │
-          │  │ ✓ No forbidden      │
-          │  │   imports           │
-          │  │ ✓ Valid syntax      │
-          │  │ ✓ Safe for sandbox  │
-          │  └──────┬──────────────┘
-          │         │
-          │         ▼
-          │  ┌─────────────────────┐
-          │  │ Sandbox Executor    │
-          │  │ subprocess.run()    │
-          │  │ timeout: 20s        │
-          │  │                     │
-          │  │ stdout:             │
-          │  │ "Department: IT"    │
-          │  │ "Salary: 95000"     │
-          │  │                     │
-          │  │ PNG file:           │
-          │  │ /tmp/output.png     │
+          │  │ Daytona Sandbox     │
+          │  │ (agent_planner)     │
+          │  │ execute generated   │
+          │  │ Python analysis     │
+          │  │ code in an isolated │
+          │  │ sandbox environment │
           │  └──────┬──────────────┘
           │         │
           ▼         ▼
@@ -275,13 +262,11 @@ User sends: "Show department salary chart"
 | `agent_planner.py` | LangChain agent with code generation |
 | `response_formatter.py` | Convert execution output to chat response |
 
-### Sandbox (Isolated Execution)
+### Sandbox (Secure Execution)
 
 | Component | Responsibility |
 |-----------|-----------------|
-| `executor.py` | subprocess.run() with timeout + capture output |
-| `code_validator.py` | Pre-execution safety checks (imports, syntax) |
-| `sandbox_env.py` | Python environment setup (optional venv) |
+| `backend/workflows/agent_planner.py` | Create a Daytona sandbox, upload the dataset, execute generated Python analysis code, and retrieve chart artifacts |
 
 ---
 
@@ -325,11 +310,9 @@ classify_intent (determine Type A or B)
   │     ↓
   │  RETURN
   │
-  └─→ (Type B) generate_code (Agent → Gemini)
+  └─→ (Type B) generate_code (Agent → Azure OpenAI)
         ↓
-      validate_code (Check imports, syntax)
-        ↓
-      execute_sandbox (Run in subprocess)
+      agent_planner (Create Daytona sandbox, execute analysis code)
         ↓
       format_response (Extract output, charts)
         ↓
@@ -379,71 +362,21 @@ class DatasetMetadata(BaseModel):
 
 ## Security & Isolation
 
-### Sandbox Execution Isolation
+### Daytona Sandbox Isolation
 
-```
-┌──────────────────────────────────┐
-│ Parent Process (FastAPI)         │
-│                                  │
-│  code_str = "import pandas..."   │
-│                                  │
-│  subprocess.run(                 │
-│    [python_exe, "-c", code_str], │
-│    timeout=20,                   │
-│    capture_output=True,          │
-│    cwd=/tmp/sandbox_{session_id} │
-│  )                               │
-│                                  │
-│  Isolation:                      │
-│  ✓ Separate process              │
-│  ✓ Timeout protection (20s)      │
-│  ✓ Restricted imports            │
-│  ✓ Temp directory cleanup        │
-│  ✓ No file system access         │
-│  ✓ No external network calls     │
-└──────────────────────────────────┘
-```
+The DeepAgents workflow executes generated Python analysis code inside a Daytona sandbox managed by `backend/workflows/agent_planner.py`.
 
-### Import Whitelist
+- The dataset is uploaded into the sandbox filesystem prior to execution.
+- The sandbox provides runtime isolation from the FastAPI host process.
+- Timeouts and execution limits are enforced by the Daytona sandbox runtime.
+- Chart files are created inside the sandbox and retrieved through sandbox APIs.
+- Unsafe host-level access is prevented by sandbox isolation.
 
-```python
-ALLOWED_IMPORTS = {
-    "pandas",
-    "numpy",
-    "matplotlib",
-    "io",        # For StringIO
-    "base64",    # For encoding
-}
+### Runtime Protections
 
-FORBIDDEN_IMPORTS = {
-    "os", "sys", "subprocess",
-    "requests", "urllib",
-    "pickle", "dill",
-    "importlib",
-    "__import__",  # Dynamic imports
-}
-```
-
-### Pre-Execution Validation
-
-```python
-def validate_code(code: str) -> bool:
-    # 1. Check for forbidden imports
-    if any(forbidden in code for forbidden in FORBIDDEN_IMPORTS):
-        raise SecurityError("Forbidden import detected")
-    
-    # 2. Parse AST for validation
-    try:
-        ast.parse(code)
-    except SyntaxError as e:
-        raise ValueError(f"Invalid syntax: {e}")
-    
-    # 3. Check for system calls
-    if any(call in code for call in ["os.system", "subprocess.run"]):
-        raise SecurityError("System calls not allowed")
-    
-    return True
-```
+- The agent prompt is scoped to data analysis and chart generation.
+- Generated code writes outputs and charts to `/tmp` inside the sandbox.
+- The system captures sandbox execution results and returns text/chart output to the frontend.
 
 ---
 
@@ -480,7 +413,7 @@ class SandboxError(Exception):
 
 # 3. LLM Errors
 class LLMError(Exception):
-    """Gemini API failed"""
+    """Azure OpenAI API failed"""
     - RateLimitError
     - APIError
     - InvalidAPIKey
@@ -571,7 +504,7 @@ Development Setup:
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [Pydantic Documentation](https://docs.pydantic.dev/)
 - [Pandas Documentation](https://pandas.pydata.org/)
-- [Gemini API](https://ai.google.dev/)
+- [Azure OpenAI API](https://learn.microsoft.com/en-us/azure/ai-services/openai/)
 
 ---
 

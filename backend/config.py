@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -19,14 +20,18 @@ class Settings(BaseSettings):
     APP_NAME: str = "Insights Chatbot"
     APP_VERSION: str = "1.0.0"
     FASTAPI_ENV: str = os.getenv("FASTAPI_ENV", "development")
-    DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
+    DEBUG: bool = False
 
     # Server
     FASTAPI_HOST: str = os.getenv("FASTAPI_HOST", "127.0.0.1")
     FASTAPI_PORT: int = int(os.getenv("FASTAPI_PORT", "8000"))
 
-    # API Keys
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    # Azure OpenAI Settings
+    AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
+    AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    AZURE_OPENAI_MODEL_NAME: str = os.getenv("AZURE_OPENAI_MODEL_NAME", "gpt-4.1")
+    AZURE_OPENAI_DEPLOYMENT_NAME: str = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4.1-khushi")
 
     # LangSmith Tracing
     LANGSMITH_TRACING: str = os.getenv("LANGSMITH_TRACING", "false")
@@ -76,14 +81,34 @@ class Settings(BaseSettings):
                 pass
         return [origin.strip() for origin in origins.split(",") if origin.strip()]
 
+    @field_validator("DEBUG", mode="before")
+    def parse_debug(cls, value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "y"}:
+                return True
+            if normalized in {"false", "0", "no", "n"}:
+                return False
+            return False
+        return False
+
     class Config:
         env_file = ".env.local"
         case_sensitive = True
+        extra = "ignore"
 
     def validate(self) -> None:
         """Validate critical configuration settings."""
-        if not self.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY environment variable is not set")
+        if not self.AZURE_OPENAI_API_KEY:
+            raise ValueError("AZURE_OPENAI_API_KEY environment variable is not set")
+        if not self.AZURE_OPENAI_ENDPOINT:
+            raise ValueError("AZURE_OPENAI_ENDPOINT environment variable is not set")
+        if not self.AZURE_OPENAI_DEPLOYMENT_NAME:
+            raise ValueError("AZURE_OPENAI_DEPLOYMENT_NAME environment variable is not set")
 
         # Create upload directory if it doesn't exist
         Path(self.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)

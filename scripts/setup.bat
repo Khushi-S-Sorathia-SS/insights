@@ -75,7 +75,7 @@ REM Copy env template
 if not exist .env.local (
     echo [i] Copying .env.example to .env.local
     copy .env.example .env.local
-    echo [!] Please edit .env.local and add your GEMINI_API_KEY
+    echo [!] Please edit .env.local and add your Azure and LangSmith credentials
 )
 
 echo.
@@ -85,8 +85,12 @@ echo ========================================
 echo.
 echo Next steps:
 echo.
-echo 1. Edit .env.local and add your Gemini API key:
-echo    GEMINI_API_KEY=your-key-here
+echo 1. Edit .env.local and add your Azure OpenAI and LangSmith credentials:
+echo    AZURE_OPENAI_API_KEY=your-key-here
+echo    AZURE_OPENAI_ENDPOINT=your-endpoint
+echo    AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+echo    LANGSMITH_API_KEY=your-key-here
+echo    LANGSMITH_PROJECT=Insights
 echo.
 echo 2. Start the backend (new terminal):
 echo    venv\Scripts\activate.bat

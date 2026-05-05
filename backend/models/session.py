@@ -3,7 +3,7 @@ Pydantic models for session management and chat messages.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,7 @@ class DatasetMetadata(BaseModel):
     columns: list[str]
     dtypes: dict[str, str]
     missing_values: dict[str, int]
+    preview_rows: list[dict[str, Any]] = Field(default_factory=list)
     size_bytes: int
     uploaded_at: datetime
 
@@ -79,6 +80,8 @@ class UploadResponse(BaseModel):
     session_id: str
     message: str
     metadata: DatasetMetadata
+    default_chart_urls: list[str] = Field(default_factory=list)
+    auto_insights: Optional[str] = None
 
     class Config:
         extra = "forbid"

@@ -1,40 +1,47 @@
-# FastAPI Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
+# FastAPI
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
 
-# LangChain & LangGraph
-# LangChain & LangGraph
-langchain==0.1.16
-langchain-community==0.0.32
-langchain-google-genai==1.0.1
-langgraph==0.0.40
-langsmith==0.1.17
+# Core (FIXED)
+pydantic==2.11.3
+pydantic-settings==2.5.2
+anyio==4.9.0
 
-# Data Processing
+# OpenAI
+openai==2.30.0
+
+# LangChain stack
+langchain==1.2.16
+langchain-core==1.3.2
+langchain-openai==1.2.1
+langgraph==1.1.10
+langsmith==0.7.38
+
+# Deep Agents
+deepagents==0.5.6
+langchain-daytona==0.0.5
+daytona==0.171.0
+
+# Data
 pandas==2.1.3
 numpy==1.26.2
 
 # Visualization
 matplotlib==3.8.2
 
-# Storage & Caching
-redis==5.0.1
+# Networking / async
+httpx==0.28.1
+aiofiles==24.1.0
 
-# Database
+# Storage
+redis==5.0.1
 pymongo==4.6.0
 
-# File Handling
-python-multipart==0.0.6
+# File handling
+python-multipart==0.0.20
 
-# Environment & Config
+# Env
 python-dotenv==1.0.0
-
-# Testing
-pytest==7.4.3
-pytest-asyncio==0.21.1
-httpx==0.25.2
 
 # Logging
 python-json-logger==2.0.7
@@ -42,5 +49,6 @@ python-json-logger==2.0.7
 # Security
 python-jose[cryptography]==3.3.0
 
-# Utilities
-aiofiles==23.2.1
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
