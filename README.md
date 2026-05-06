@@ -266,9 +266,9 @@ cp .env.example .env.local
 # Edit .env.local and add your Azure OpenAI settings
 AZURE_OPENAI_API_KEY=your-key-here
 AZURE_OPENAI_ENDPOINT=https://ai-agents-interns-resource.cognitiveservices.azure.com/
-AZURE_OPENAI_API_VERSION=2024-12-01-preview
+AZURE_OPENAI_API_VERSION=version
 AZURE_OPENAI_MODEL_NAME=gpt-4.1
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4.1-khushi
+AZURE_OPENAI_DEPLOYMENT_NAME=name
 ```
 
 ### 3. Set Up Backend
