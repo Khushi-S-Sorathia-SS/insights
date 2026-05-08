@@ -11,7 +11,7 @@ def format_sandbox_response(output: Dict[str, object]) -> ChatResponse:
     """Transform sandbox result into a ChatResponse."""
     stdout = str(output.get("stdout", "")).strip()
     stderr = str(output.get("stderr", "")).strip()
-    charts = output.get("charts", []) or []
+    chart_schemas = output.get("chart_schemas", []) or []
     execution_time_ms = output.get("execution_time_ms")
 
     if not stdout and stderr:
@@ -21,12 +21,12 @@ def format_sandbox_response(output: Dict[str, object]) -> ChatResponse:
         if stderr:
             content += f"\n\nAdditional notes:\n{stderr}"
 
-    chart_url: Optional[str] = None
-    if charts:
-        chart_url = f"data:image/png;base64,{charts[0]}"
+    chart_schema: Optional[dict] = None
+    if chart_schemas:
+        chart_schema = chart_schemas[0]
 
     return ChatResponse(
         content=content,
-        chart_url=chart_url,
+        chart_schema=chart_schema,
         execution_time_ms=int(execution_time_ms) if execution_time_ms is not None else None,
     )

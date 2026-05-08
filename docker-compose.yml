@@ -11,25 +11,38 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app/backend
-      - /tmp/uploads:/tmp/uploads
+    env_file:
+      - .env.local
     environment:
       - FASTAPI_HOST=0.0.0.0
       - FASTAPI_PORT=8000
       - FASTAPI_ENV=development
       - DEBUG=true
-      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
-      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
-      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
-      - AZURE_OPENAI_MODEL_NAME=${AZURE_OPENAI_MODEL_NAME}
-      - AZURE_OPENAI_DEPLOYMENT_NAME=${AZURE_OPENAI_DEPLOYMENT_NAME}
       - SANDBOX_TIMEOUT=20
       - ALLOWED_ORIGINS=http://localhost:3000
     command: python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - insights-network
     depends_on:
-      - redis
-      - mongodb
+      - postgres
+
+  # PostgreSQL Database
+  postgres:
+    container_name: insights-postgres
+    image: postgres:15
+    ports:
+      - "5433:5432"
+    env_file:
+      - .env.local
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - insights-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # Next.js Frontend
   frontend:
@@ -50,43 +63,8 @@ services:
     depends_on:
       - backend
 
-  # Redis (Optional - for session caching in post-MVP)
-  redis:
-    container_name: insights-redis
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    networks:
-      - insights-network
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  # MongoDB (Optional - for logging in post-MVP)
-  mongodb:
-    container_name: insights-mongodb
-    image: mongo:7
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb-data:/data/db
-    environment:
-      MONGO_INITDB_DATABASE: insights_chatbot
-    networks:
-      - insights-network
-    healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
 volumes:
-  redis-data:
-  mongodb-data:
+  postgres-data:
 
 networks:
   insights-network:

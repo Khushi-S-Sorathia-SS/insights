@@ -7,7 +7,7 @@ An AI-powered chatbot that allows users to upload employee CSV datasets and ask 
 - **CSV Upload**: Upload employee datasets with validation (max 10MB)
 - **Natural Language Queries**: Ask questions in plain English
 - **Dynamic Analysis**: AI-generated Python code for data analysis
-- **Chart Generation**: Automatic visualization generation
+- **Schema-based Visualization**: Dynamic frontend rendering based on analytical intent
 - **Secure Sandbox**: Isolated code execution with timeout protection
 - **Session Management**: Per-user session context and chat history
 
@@ -30,7 +30,7 @@ An AI-powered chatbot that allows users to upload employee CSV datasets and ask 
 This project uses a layered hybrid-agent architecture. The frontend provides the user experience, while the backend orchestrates data ingestion, workflow planning, safe code execution, and AI reasoning.
 
 ### High-level architecture
-- `Next.js` frontend: Chat-based UI, file upload, and interactive dataset visualization.
+- `Next.js` frontend: Chat-based UI, file upload, and generic visualization engine with predefined chart registry.
 - `FastAPI` backend: REST API endpoints for upload and query handling.
 - `LangGraph`: Graph-based workflow orchestration that treats each processing stage as an agent node.
 - `LangChain`: LLM chain orchestration inside each agent node, used to execute Azure OpenAI calls, manage prompts, and build reasoning steps.
@@ -47,8 +47,8 @@ This project uses a layered hybrid-agent architecture. The frontend provides the
    - `pipeline`: manages the multi-turn conversation state.
    - `response_formatter`: assembles the final response, including charts and summaries.
 5. Each node uses LangChain-style prompting to invoke Azure OpenAI and generate Python analysis code.
-6. Generated code runs inside the Daytona sandbox via `backend/workflows/agent_planner.py`, where the DeepAgents workflow uploads the dataset, executes analysis, and retrieves charts.
-7. Results are stored in session state and returned to the frontend as structured text, metadata, and optional chart output.
+6. Generated code runs inside the Daytona sandbox via `backend/workflows/agent_planner.py`, where the DeepAgents workflow uploads the dataset, executes computation, and retrieves JSON outputs.
+7. Results are stored in session state and returned to the frontend as structured text, metadata, and JSON chart schemas.
 
 ### Architecture diagram
 
@@ -107,7 +107,7 @@ flowchart TD
 - Planning: LangGraph routes request to the correct agent chain
 - Reasoning: LangChain prompts Azure OpenAI for analysis and code generation
 - Execution: sandboxed Python executes analysis scripts and returns structured results
-- Output: Final response delivered to the UI, including text, charts, and metadata
+- Output: Final response delivered to the UI, including text, chart schemas, and metadata
 
 ## Project Structure
 
@@ -205,11 +205,11 @@ Insights/
 - **`backend/workflows/agent_planner.py`**
   Generates a step-by-step execution plan for complex data requests, selecting the right tools and parameters. It translates abstract questions into concrete analytical tasks.
 - **`backend/workflows/response_formatter.py`**
-  Synthesizes the results from code execution into user-friendly natural language responses. It ensures that data tables and charts are correctly integrated into the final output.
+  Synthesizes the computed outputs into user-friendly natural language responses and standardized JSON chart schemas based on analytical intent.
 
 #### Secure Sandbox (Daytona)
 - **`backend/workflows/agent_planner.py`**
-  Creates a Daytona sandbox, uploads the dataset, executes generated Python analysis code, and retrieves charts as needed.
+  Creates a Daytona sandbox, uploads the dataset, executes generated Python analysis code, and retrieves computed data.
 - **Sandbox Execution** is handled through the DeepAgents workflow rather than a legacy local subprocess helper.
 
 #### Data & Storage (`backend/models/` & `backend/storage/`)
@@ -235,7 +235,7 @@ Insights/
 - **`frontend/pages/index.tsx`**
   The primary landing page and workspace layout, managing the integration of the file uploader and chat window. It coordinates the global state for the active analysis session.
 - **`frontend/components/ChatWindow.tsx`**
-  A responsive chat interface that renders message history and provides real-time feedback during processing. It supports rich-text formatting and embedded chart displays.
+  A responsive chat interface that renders message history and provides real-time feedback during processing. It supports rich-text formatting and dynamic chart components.
 - **`frontend/components/FileUpload.tsx`**
   A drag-and-drop component for dataset uploads, providing visual progress indicators and error reporting. It interacts directly with the backend upload API to initialize sessions.
 - **`frontend/utils/api-client.ts`**
@@ -376,7 +376,17 @@ Send a natural language query for data analysis.
 {
   "role": "assistant",
   "content": "Based on the dataset, here's the average salary by department:\n\nIT: $95,000\nSales: $75,000\nHR: $65,000",
-  "chart_url": "data:image/png;base64,iVBORw0KGgoAAAANS...",
+  "chart_schema": {
+    "type": "bar",
+    "title": "Average Salary by Department",
+    "data": [
+      {"department": "IT", "salary": 95000},
+      {"department": "Sales", "salary": 75000},
+      {"department": "HR", "salary": 65000}
+    ],
+    "xAxis": "department",
+    "yAxis": "salary"
+  },
   "execution_time_ms": 2500
 }
 ```
@@ -400,7 +410,7 @@ Assistant:
 
 ```
 User: Show gender vs salary chart
-Assistant: [PNG chart showing salary distribution by gender]
+Assistant: [Dynamic chart rendered from JSON schema]
 ```
 
 ### Example 3: Data Quality
@@ -487,7 +497,7 @@ pytest backend/tests/ --cov=backend --cov-report=html
 | Metric                   | Target |
 | ------------------------ | ------ |
 | Standard response        | <3 sec |
-| Chart generation         | <8 sec |
+| Chart rendering          | <8 sec |
 | Upload success rate      | >95%   |
 | Query success rate       | >90%   |
 | Error rate               | <5%    |

@@ -13,23 +13,19 @@ export default function FileUpload({ onUpload, disabled = false }: FileUploadPro
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    if (!file) return;
 
-    if (!file) {
-      return;
-    }
-
-    setStatus('Uploading...');
-
+    setStatus('Ingesting data...');
     try {
       await onUpload(file);
-      setStatus('Upload complete! You can now ask questions.');
+      setStatus('Ingestion complete. Analysis ready.');
     } catch (error) {
-      setStatus('Upload failed. Please try again.');
+      setStatus('Ingestion failed. Retry required.');
     }
   };
 
   return (
-    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+    <div className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center bg-white/5 hover:bg-white/10 transition-all cursor-pointer group">
       <input
         ref={fileInputRef}
         type="file"
@@ -41,16 +37,26 @@ export default function FileUpload({ onUpload, disabled = false }: FileUploadPro
       />
       <label
         htmlFor="file-input"
-        className={`cursor-pointer block ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
+        className={`cursor-pointer block ${disabled ? 'opacity-30 pointer-events-none' : ''}`}
       >
-        <p className="text-gray-600 text-sm">
-          Drag and drop your CSV file here, or click to select
+        <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+          <svg className="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+        </div>
+        <p className="text-slate-300 text-sm font-medium">
+          Drop CSV vectors here, or click to browse
         </p>
-        <p className="text-gray-400 text-xs mt-2">
-          Max 10 MB • CSV format only
+        <p className="text-slate-500 text-[10px] mt-2 uppercase tracking-widest font-bold">
+          MAX 10MB • CSV FORMAT ONLY
         </p>
       </label>
-      <div className="mt-4 text-sm text-gray-600">{status}</div>
+      {status && (
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
+          <p className="text-[11px] font-bold text-indigo-300 uppercase tracking-tighter">{status}</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ class DatasetMetadata(BaseModel):
     """Metadata about the uploaded dataset."""
 
     filename: str
+    dataset_id: str
     file_path: str
     rows: int
     columns: list[str]
@@ -78,9 +79,10 @@ class UploadResponse(BaseModel):
     """Response model for file upload endpoint."""
 
     session_id: str
+    dashboard_id: Optional[str] = None  # Persisted dashboard UUID for reload support
     message: str
     metadata: DatasetMetadata
-    default_chart_urls: list[str] = Field(default_factory=list)
+    default_chart_schemas: list[dict] = Field(default_factory=list)
     auto_insights: Optional[str] = None
 
     class Config:
@@ -102,7 +104,7 @@ class ChatResponse(BaseModel):
 
     role: str = "assistant"
     content: str
-    chart_url: Optional[str] = None
+    chart_schema: Optional[dict] = None
     execution_time_ms: Optional[int] = None
     error_message: Optional[str] = None
 

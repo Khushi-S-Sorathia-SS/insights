@@ -14,8 +14,8 @@ This document describes the system architecture, data flow, and component intera
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        FRONTEND (Next.js)                           │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐   │
-│  │  File Upload     │  │  Chat Window     │  │ Chart Display  │   │
-│  │   Component      │  │   (Messages)     │  │   (PNG images) │   │
+│  │  File Upload     │  │  Chat Window     │  │ Visualization  │   │
+│  │   Component      │  │   (Messages)     │  │ Engine (Schema)│   │
 │  └────────┬─────────┘  └────────┬─────────┘  └────────────────┘   │
 │           │                     │                                   │
 │           └─────────────────────┼───────────────────────────────┘  │
@@ -65,7 +65,7 @@ This document describes the system architecture, data flow, and component intera
            │              │  (Python)       │                │
            │              └──────┬──────────┘                │
            │                     │                            │
-           │                     │ (Generated Code)          │
+           │                     │ (Aggregations/Pandas)      │
            │                     │                            │
            │                     └──────────────────┬─────────┘
            │                                        │
@@ -77,7 +77,7 @@ This document describes the system architecture, data flow, and component intera
            │                                   ┌────▼──────────┐
            │                                   │  Pandas       │
            │                                   │  NumPy        │
-           │                                   │  Matplotlib   │
+           │                                   │  (No plots)   │
            │                                   └────┬──────────┘
            │                                        │
            │                     ┌──────────────────┘
@@ -87,16 +87,16 @@ This document describes the system architecture, data flow, and component intera
            │              │ Formatter       │
            │              └──────┬──────────┘
            │                     │
-           │        ┌────────────┼────────────┐
-           │        │            │            │
-           └────────┼──────► TEXT │ CHART     │ ERROR MSG
-                    │            │            │
-                    └────────────┼────────────┘
-                                 │
-                    ┌────────────▼───────────┐
-                    │  Response to Frontend  │
-                    │  (JSON + base64 PNG)   │
-                    └────────────────────────┘
+           │        ┌──────────────┼─────────────┐
+           │        │              │             │
+           └────────┼──────► TEXT  │ CHART SCHEMA│ ERROR MSG
+                    │              │             │
+                    └──────────────┼─────────────┘
+                                   │
+                    ┌──────────────▼─────────────┐
+                    │  Response to Frontend      │
+                    │  (Text + Chart JSON Schema)│
+                    └────────────────────────────┘
 ```
 
 ---
@@ -190,8 +190,8 @@ User sends: "Show department salary chart"
           │  │                     │
           │  │ import pandas as pd │
           │  │ df = pd.read_csv... │
-          │  │ chart = df.plot()   │
-          │  │ plt.savefig()       │
+          │  │ result = df.groupby()│
+          │  │ print(result.to_json)│
           │  └──────┬──────────────┘
           │         │
           │         ▼
@@ -207,9 +207,9 @@ User sends: "Show department salary chart"
           ▼         ▼
     ┌──────────────────────────┐
     │ Response Formatter       │
-    │ - Extract text           │
-    │ - Convert PNG→base64     │
-    │ - Build JSON response    │
+    │ - Parse computed data    │
+    │ - Determine chart intent │
+    │ - Build JSON Chart Schema│
     └──────┬───────────────────┘
            │
            ▼
@@ -217,12 +217,12 @@ User sends: "Show department salary chart"
     {
       "role": "assistant",
       "content": "Department salaries:\nIT: $95K",
-      "chart_url": "data:image/png;base64,..."
+      "chart_schema": {"type": "bar", "data": [...]}
     }
            │
            ▼
     Frontend renders message
-    + displays PNG chart
+    + generic chart engine renders Schema
 ```
 
 ---
@@ -236,7 +236,7 @@ User sends: "Show department salary chart"
 | `FileUpload.tsx` | File selection, size validation, drag-drop UX |
 | `ChatWindow.tsx` | Message list, input box, loading states |
 | `Message.tsx` | Individual message rendering |
-| `ChartDisplay.tsx` | Render base64 PNG images |
+| `ChartDisplay.tsx` | Generic visualization engine with predefined registry (bar, line, pie, etc.) |
 | `ErrorBoundary.tsx` | Global error display |
 | `useChat.ts` | Chat state, message history, API calls |
 | `api-client.ts` | HTTP client for /upload, /chat endpoints |
@@ -260,13 +260,13 @@ User sends: "Show department salary chart"
 | `langgraph_pipeline.py` | StateGraph definition, node orchestration |
 | `intent_classifier.py` | Classify query as Type A (direct) or Type B (analysis) |
 | `agent_planner.py` | LangChain agent with code generation |
-| `response_formatter.py` | Convert execution output to chat response |
+| `response_formatter.py` | Convert computed outputs into standardized chart schema |
 
 ### Sandbox (Secure Execution)
 
 | Component | Responsibility |
 |-----------|-----------------|
-| `backend/workflows/agent_planner.py` | Create a Daytona sandbox, upload the dataset, execute generated Python analysis code, and retrieve chart artifacts |
+| `backend/workflows/agent_planner.py` | Create a Daytona sandbox, upload the dataset, execute generated Python analysis code, and retrieve computed JSON outputs |
 
 ---
 
@@ -288,11 +288,11 @@ class PipelineState(TypedDict):
     # Processing
     intent_type: Literal["A", "B"]  # Direct or Analysis
     generated_code: str
-    sandbox_output: dict  # {stdout, stderr, png_base64}
+    sandbox_output: dict  # {stdout, stderr, computed_data}
     
     # Output
     response_text: str
-    chart_url: Optional[str]
+    chart_schema: Optional[dict]
     error_message: Optional[str]
 ```
 
@@ -314,7 +314,7 @@ classify_intent (determine Type A or B)
         ↓
       agent_planner (Create Daytona sandbox, execute analysis code)
         ↓
-      format_response (Extract output, charts)
+      format_response (Extract output, determine chart schema)
         ↓
       RETURN
 ```
@@ -369,14 +369,14 @@ The DeepAgents workflow executes generated Python analysis code inside a Daytona
 - The dataset is uploaded into the sandbox filesystem prior to execution.
 - The sandbox provides runtime isolation from the FastAPI host process.
 - Timeouts and execution limits are enforced by the Daytona sandbox runtime.
-- Chart files are created inside the sandbox and retrieved through sandbox APIs.
+- Computed data is generated inside the sandbox and retrieved via stdout/files.
 - Unsafe host-level access is prevented by sandbox isolation.
 
 ### Runtime Protections
 
-- The agent prompt is scoped to data analysis and chart generation.
-- Generated code writes outputs and charts to `/tmp` inside the sandbox.
-- The system captures sandbox execution results and returns text/chart output to the frontend.
+- The agent prompt is scoped to data analysis and aggregations.
+- Generated code writes data outputs to `/tmp` or stdout inside the sandbox.
+- The system captures sandbox execution results and returns text/chart schema to the frontend.
 
 ---
 
@@ -387,7 +387,7 @@ The DeepAgents workflow executes generated Python analysis code inside a Daytona
 | Standard response (Type A) | <3 sec | Cache context in Redis (post-MVP) |
 | Sandbox response (Type B) | <8 sec | Optimize LLM prompt, efficient pandas queries |
 | File upload | < 1 sec | Stream to disk, async metadata extraction |
-| Chart generation | < 5 sec | Use matplotlib (fast), pre-format data |
+| Chart rendering | < 5 sec | Dynamic frontend rendering based on JSON schema |
 | Concurrent queries | 5-10 | Process queue with asyncio |
 
 ---

@@ -42,10 +42,10 @@ last_execution_charts = []
 
 
 @trace_function(name="generate_analysis_code", tags=["agent", "code_generation", "deepagents"])
-def generate_analysis_code(user_query: str, dataset: DatasetMetadata) -> dict:
-    """Generate Python code using Deep Agents with Azure OpenAI and Daytona sandbox. Returns dict with output and charts."""
+def generate_analysis_code(user_query: str, dataset: DatasetMetadata, raw_data: bytes, chart_rules: str = "") -> dict:
+    """Generate Python code using Deep Agents with Azure OpenAI and Daytona sandbox. Returns dict with output and chart schemas."""
     global current_dataset_path, last_execution_charts
-    current_dataset_path = dataset.file_path
+    current_dataset_path = None  # No local file path; data comes from PostgreSQL
     last_execution_charts = []  # Reset for new execution
 
     # Initialize Daytona client for this session
@@ -56,15 +56,13 @@ def generate_analysis_code(user_query: str, dataset: DatasetMetadata) -> dict:
     backend = DaytonaSandbox(sandbox=sandbox)
 
     try:
-        # Upload the dataset file to the sandbox
-        dataset_filename = Path(dataset.file_path).name
-        sandbox_dataset_path = f"/tmp/{dataset_filename}"
-        with open(dataset.file_path, 'rb') as f:
-            dataset_content = f.read()
-
-        backend.upload_files([
-            (sandbox_dataset_path, dataset_content)
-        ])
+        # Upload raw CSV bytes directly into the sandbox.
+        # The Daytona sandbox is a remote cloud environment that CANNOT access
+        # the local Docker network (postgres:5432 / host.docker.internal are unreachable).
+        # Data is already saved in PostgreSQL by file_manager. Here we just give
+        # the agent a local copy to work with.
+        sandbox_path = f"/home/daytona/{dataset.filename}"
+        sandbox.fs.upload_file(raw_data, sandbox_path)
 
         # Create the system prompt
         system_prompt = f"""You are an expert data analyst. Given a user query and dataset information, generate and execute Python code to analyze the data and answer the query.
@@ -78,22 +76,48 @@ Dataset information:
 
 Your job is to:
 1. Understand the user's query and dataset structure
-2. Generate complete, executable Python code that loads the dataset and performs the analysis
-3. Execute your generated code using the available tools
-4. Analyze the results and provide insights
+2. **VALIDATE COLUMNS FIRST**: Before doing anything else, check if ALL columns mentioned in the user query actually exist in the dataset. The EXACT available columns are: {", ".join(dataset.columns)}
+3. If the user's query references a column that does NOT exist (e.g., "Job Category" when it is not in the dataset), you MUST:
+   - Immediately stop and do NOT generate a chart.
+   - Respond clearly: "The column '[column_name]' does not exist in this dataset. The available columns are: {', '.join(dataset.columns)}."
+   - Do NOT write any chart schemas.
+4. Only if all required columns exist: Generate complete, executable Python code that loads the dataset and performs the analysis
+5. Execute your generated code using the available tools
+6. Analyze the results and provide insights
+
+MANDATORY FIRST CODE STEP:
+Your very FIRST code execution MUST always be:
+```python
+import subprocess, sys
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pandas"])
+
+import pandas as pd
+
+df = pd.read_csv("{sandbox_path}")
+print("Columns:", df.columns.tolist())
+print("Dtypes:", df.dtypes.to_dict())
+print("Shape:", df.shape)
+print(df.head(3))
+```
+Use the EXACT column names from this output. Do NOT rename or guess column names.
 
 CRITICAL REQUIREMENTS:
-- The dataset is available at {sandbox_dataset_path}
-- Always inspect the dataset structure first before making assumptions about columns
-- Generate code that SAVES charts as PNG files in /tmp/ (e.g., plt.savefig('/tmp/chart_name.png', dpi=100, bbox_inches='tight'))
-- For initial dataset overview: Create at least 2-3 visualizations:
-  * Distribution plots for numeric columns
-  * Count plots for categorical columns
-  * Correlation heatmap if there are numeric columns
-- Use plt.figure(figsize=(10, 6)) for better chart sizes
-- Close plots after saving: plt.close()
+- The dataset is available as a local CSV file at `{sandbox_path}`. Read it with pd.read_csv().
+- Do NOT try to connect to any database. The file is already in the sandbox.
+- NEVER invent, guess, or substitute column names. If a column is missing, say so explicitly.
+- When grouping by a string/categorical column (like job categories, departments, gender), the grouped column values ARE STRINGS. Never try to convert them to int or float. Use them as-is for labels.
+- For chart data objects, category/label fields must be strings, and value fields must be numbers. Example: {{"jobcat": "Manager", "count": 84}} — "Manager" stays a string, count is a number.
+- DO NOT generate matplotlib charts or save PNG files. Instead, compute the necessary metrics/aggregations and output STRICTLY formatted JSON matching the required chart schema.
+- Save all generated chart schema JSON objects as a JSON list into a file at `/home/daytona/chart_schemas.json` (inside the sandbox).
+- IMPORTANT: The `/home/daytona/chart_schemas.json` file must contain ONLY raw, valid JSON. Do not wrap it in markdown backticks.
+- IMPORTANT: DO NOT mention the file paths or where the charts are saved in your final textual response to the user.
+- IMPORTANT: DO NOT output any of your Python code, Pandas DataFrames, or raw data in your final response. Your final response MUST contain ONLY natural language insights.
+- If your first code attempt raises an error, debug it and try again with corrected code. Make sure charts are written to `/home/daytona/chart_schemas.json` before you finish.
+
+CHART SCHEMA RULES:
+{chart_rules if chart_rules else "No specific rules provided. Use generic representations."}
+
 - Be precise and efficient in your code generation
-- IMPORTANT: Save all charts before running any analysis code
 
 You have access to filesystem tools (read_file, write_file, edit_file, ls, glob, grep) and can execute shell commands in the sandbox."""
 
@@ -131,36 +155,42 @@ Please analyze the dataset and answer the query. Generate and execute Python cod
         else:
             output_text = "Analysis completed. Check the results above."
 
-        # Retrieve any generated charts from the sandbox
+        # Retrieve chart schemas from the ephemeral Daytona sandbox
+        import json
+        import re
         try:
-            # List PNG files in the temp directory
-            chart_files = []
-            ls_result = backend.execute("ls /tmp/*.png")
-            if ls_result.output.strip():
-                chart_files = [line.strip() for line in ls_result.output.strip().split('\n') if line.strip()]
-
-            charts = []
-            if chart_files:
-                # Download the chart files
-                download_results = backend.download_files([f"/tmp/{Path(f).name}" for f in chart_files])
-                for download_result in download_results:
-                    if download_result.content:
-                        charts.append(base64.b64encode(download_result.content).decode("utf-8"))
-
-            last_execution_charts = charts
+            schema_result = backend.execute("cat /home/daytona/chart_schemas.json")
+            output_str = schema_result.output.strip()
+            
+            if output_str and "No such file" not in output_str:
+                # Clean up any potential markdown formatting from the LLM
+                if "```json" in output_str:
+                    match = re.search(r"```json\s*(.*?)\s*```", output_str, re.DOTALL)
+                    if match:
+                        output_str = match.group(1)
+                elif "```" in output_str:
+                    match = re.search(r"```\s*(.*?)\s*```", output_str, re.DOTALL)
+                    if match:
+                        output_str = match.group(1)
+                        
+                print(f"DEBUG CHART SCHEMAS: {output_str}")
+                last_execution_charts = json.loads(output_str)
+            else:
+                last_execution_charts = []
         except Exception as e:
-            # If chart retrieval fails, continue without charts
+            # If chart retrieval fails, continue without schemas
+            print(f"Failed to parse charts: {e}")
             last_execution_charts = []
 
-        # Return both output text and captured charts
+        # Return both output text and captured chart schemas
         return {
             "output": output_text,
-            "charts": last_execution_charts
+            "chart_schemas": last_execution_charts
         }
 
     finally:
         # Clean up the sandbox
         try:
-            sandbox.stop()
+            sandbox.delete()
         except Exception:
             pass  # Ignore cleanup errors

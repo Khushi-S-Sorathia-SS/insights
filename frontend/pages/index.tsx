@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import FileUpload from '../components/FileUpload';
 import ChatWindow from '../components/ChatWindow';
 import Dashboard from '../components/Dashboard';
-import { uploadFile, sendMessage, UploadMetadata } from '../utils/api-client';
+import { uploadFile, sendMessage, getDashboard, getDashboardById, UploadMetadata, ChartSchema } from '../utils/api-client';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  chart_url?: string;
+  chart_schema?: ChartSchema;
   execution_time_ms?: number;
 }
 
@@ -17,7 +17,7 @@ interface DashboardWidget {
   title: string;
   type: 'chart' | 'insight';
   content?: string;
-  chartUrl?: string;
+  chartSchema?: ChartSchema;
 }
 
 export default function Home() {
@@ -26,24 +26,55 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [datasetMetadata, setDatasetMetadata] = useState<UploadMetadata | null>(null);
-  const [defaultChartUrls, setDefaultChartUrls] = useState<string[]>([]);
+  const [defaultChartSchemas, setDefaultChartSchemas] = useState<ChartSchema[]>([]);
   const [autoInsights, setAutoInsights] = useState<string>('');
   const [dashboardWidgets, setDashboardWidgets] = useState<DashboardWidget[]>([]);
+
+  useEffect(() => {
+    const savedSessionId = localStorage.getItem('insightai_session_id');
+    const savedDashboardId = localStorage.getItem('insightai_dashboard_id');
+
+    if (savedSessionId) setSessionId(savedSessionId);
+
+    // Prefer fetching by dashboard_id — works even after backend restarts
+    if (savedDashboardId) {
+      getDashboardById(savedDashboardId)
+        .then((data) => {
+          if (data && data.widgets && data.widgets.length > 0) {
+            setDashboardWidgets(data.widgets as DashboardWidget[]);
+          }
+        })
+        .catch(console.error);
+    } else if (savedSessionId) {
+      // Fallback: try session-based fetch (only works if backend still has session in memory)
+      getDashboard(savedSessionId)
+        .then((data) => {
+          if (data && data.widgets && data.widgets.length > 0) {
+            setDashboardWidgets(data.widgets as DashboardWidget[]);
+          }
+        })
+        .catch(console.error);
+    }
+  }, []);
 
   const handleUpload = async (file: File) => {
     try {
       setUploadError(null);
       const response = await uploadFile(file);
       setSessionId(response.session_id);
+      localStorage.setItem('insightai_session_id', response.session_id);
+      if (response.dashboard_id) {
+        localStorage.setItem('insightai_dashboard_id', response.dashboard_id);
+      }
       setDatasetMetadata(response.metadata);
-      setDefaultChartUrls(response.default_chart_urls ?? []);
+      setDefaultChartSchemas(response.default_chart_schemas ?? []);
       setAutoInsights(response.auto_insights ?? '');
 
       const initialWidgets: DashboardWidget[] = [];
       if (response.auto_insights) {
         initialWidgets.push({
           id: 'widget-auto-insights',
-          title: 'Auto insights',
+          title: 'Autonomous Data Ingestion',
           type: 'insight',
           content: response.auto_insights,
         });
@@ -53,19 +84,17 @@ export default function Home() {
       setMessages([
         {
           role: 'assistant',
-          content: `Upload successful. Dataset ${response.metadata.filename} is ready for analysis.`,
+          content: `Ingestion complete. Dataset "${response.metadata.filename}" has been indexed. I am ready for advanced analytical queries.`,
         },
       ]);
     } catch (error) {
-      setUploadError('Unable to upload dataset. Please check the file and try again.');
+      setUploadError('Data ingestion failed. Ensure the CSV format is valid.');
       throw error;
     }
   };
 
   const handleSendMessage = async (message: string) => {
-    if (!sessionId) {
-      return;
-    }
+    if (!sessionId) return;
 
     const nextMessages: ChatMessage[] = [...messages, { role: 'user', content: message }];
     setMessages(nextMessages);
@@ -76,23 +105,20 @@ export default function Home() {
       const assistantMessage: ChatMessage = {
         role: response.role as ChatMessage['role'],
         content: response.content,
-        chart_url: response.chart_url,
+        chart_schema: response.chart_schema,
         execution_time_ms: response.execution_time_ms,
       };
-      setMessages((current) => [
-        ...current,
-        assistantMessage,
-      ]);
+      setMessages((current) => [...current, assistantMessage]);
 
       const widgetId = `widget-${Date.now()}`;
-      if (response.chart_url) {
+      if (response.chart_schema) {
         setDashboardWidgets((current) => [
           ...current,
           {
             id: widgetId,
-            title: 'Chat chart',
+            title: `Analysis: ${message.slice(0, 30)}...`,
             type: 'chart',
-            chartUrl: response.chart_url,
+            chartSchema: response.chart_schema,
             content: response.content,
           },
         ]);
@@ -101,7 +127,7 @@ export default function Home() {
           ...current,
           {
             id: widgetId,
-            title: 'Chat insight',
+            title: 'Statistical Insight',
             type: 'insight',
             content: response.content,
           },
@@ -110,7 +136,7 @@ export default function Home() {
     } catch (error) {
       setMessages((current) => [
         ...current,
-        { role: 'assistant', content: 'Failed to retrieve an answer. Please try again.' },
+        { role: 'assistant', content: 'Statistical retrieval failed. Please refine your query.' },
       ]);
     } finally {
       setChatLoading(false);
@@ -118,66 +144,81 @@ export default function Home() {
   };
 
   return (
-    <>
+    <div className="flex flex-col min-h-screen">
       <Head>
-        <title>Insights Chatbot | Employee Data Analysis</title>
-        <meta
-          name="description"
-          content="AI-powered chatbot for employee dataset analysis"
-        />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
+        <title>InsightAI | Workforce Intelligence</title>
+        <meta name="description" content="Premium AI-powered workforce intelligence and data analysis." />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        <header className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <h1 className="text-3xl font-bold text-gray-900">
-              📊 Insights Chatbot
-            </h1>
-            <p className="text-gray-600 mt-1">
-              AI-powered analysis for employee datasets
-            </p>
+      {/* Header */}
+      <header className="px-8 py-6 flex items-center justify-between border-b border-white/5 bg-[#0b1326]/80 backdrop-blur-md sticky top-0 z-50">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
           </div>
-        </header>
+          <div>
+            <h1 className="text-xl font-bold text-slate-100 tracking-tight">InsightAI</h1>
+            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-[0.2em] leading-none mt-1">Workforce Intelligence Platform</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-6">
+          <div className="hidden md:flex flex-col items-end">
+            <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">System Status</span>
+            <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Operational
+            </span>
+          </div>
+        </div>
+      </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div className="lg:col-span-3">
-              <Dashboard
-                metadata={datasetMetadata}
-                defaultChartUrls={defaultChartUrls}
-                autoInsights={autoInsights}
-                widgets={dashboardWidgets}
+      <main className="flex-1 px-8 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-[1600px] mx-auto">
+          {/* Main Dashboard Section */}
+          <div className="lg:col-span-8 space-y-8">
+            <Dashboard
+              metadata={datasetMetadata}
+              defaultChartSchemas={defaultChartSchemas}
+              autoInsights={autoInsights}
+              widgets={dashboardWidgets}
+            />
+          </div>
+
+          {/* Sidebar Section */}
+          <div className="lg:col-span-4 space-y-8 flex flex-col h-[calc(100vh-160px)] sticky top-28">
+            {/* Upload Area */}
+            <div className="glass-card p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-sm font-bold text-slate-100 uppercase tracking-widest">Data Ingestion</h2>
+                <div className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded text-[10px] text-indigo-400 font-bold">CSV/XLSX</div>
+              </div>
+              <FileUpload onUpload={handleUpload} disabled={chatLoading} />
+              {uploadError && (
+                <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3">
+                  <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-xs text-red-400">{uploadError}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Chat Assistant */}
+            <div className="flex-1 min-h-0">
+              <ChatWindow
+                messages={messages}
+                onSend={handleSendMessage}
+                disabled={!sessionId}
+                loading={chatLoading}
               />
             </div>
-
-            <div className="lg:col-span-1 space-y-6">
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                  📁 Upload Dataset
-                </h2>
-                <FileUpload onUpload={handleUpload} disabled={chatLoading} />
-                {uploadError ? (
-                  <p className="mt-3 text-sm text-red-600">{uploadError}</p>
-                ) : null}
-              </div>
-
-              <div className="bg-white rounded-lg shadow-md p-6 h-[600px] flex flex-col">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                  💬 Analysis Chat
-                </h2>
-                <ChatWindow
-                  messages={messages}
-                  onSend={handleSendMessage}
-                  disabled={!sessionId}
-                  loading={chatLoading}
-                />
-              </div>
-            </div>
           </div>
-        </main>
-      </div>
-    </>
+        </div>
+      </main>
+
+
+    </div>
   );
 }

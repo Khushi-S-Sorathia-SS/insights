@@ -1,31 +1,33 @@
 """
-CSV upload and dataset metadata extraction.
+CSV upload and dataset metadata extraction (Database integrated).
 """
 
 import io
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
 
 import pandas as pd
 from fastapi import UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import ALLOWED_FILE_TYPES, get_settings
 from ..models.session import DatasetMetadata
+from ..db.models import Dataset
 from ..utils.error_handler import CorruptedDataError, FileTooLargeError, InvalidFileFormatError
 
 settings = get_settings()
-
 
 class FileManager:
     """File manager for handling CSV uploads."""
 
     def __init__(self) -> None:
-        self.root_dir = Path(settings.UPLOAD_DIR)
-        self.root_dir.mkdir(parents=True, exist_ok=True)
+        pass
 
-    def save_uploaded_csv(self, upload_file: UploadFile, session_id: str) -> DatasetMetadata:
-        filename = Path(upload_file.filename or "dataset.csv").name
+    async def save_uploaded_csv(self, upload_file: UploadFile, session_id: str, db: AsyncSession) -> DatasetMetadata:
+        if not upload_file.filename:
+            raise InvalidFileFormatError("Unnamed File", ALLOWED_FILE_TYPES)
+            
+        filename = Path(upload_file.filename).name
         extension = Path(filename).suffix.lower()
 
         if extension not in ALLOWED_FILE_TYPES:
@@ -41,12 +43,6 @@ class FileManager:
         if size_bytes > settings.MAX_UPLOAD_SIZE:
             raise FileTooLargeError(size_bytes, settings.MAX_UPLOAD_SIZE)
 
-        session_dir = self.root_dir / session_id
-        session_dir.mkdir(parents=True, exist_ok=True)
-
-        csv_path = session_dir / filename
-        csv_path.write_bytes(content)
-
         try:
             df = pd.read_csv(io.BytesIO(content))
         except Exception as exc:
@@ -56,9 +52,25 @@ class FileManager:
         dtypes = {str(col): str(df[col].dtype) for col in df.columns}
         preview_rows = df.head(5).fillna("").to_dict(orient="records")
 
+        # Save to PostgreSQL datasets table
+        dataset_record = Dataset(
+            filename=filename,
+            schema_json={
+                "columns": [str(col) for col in df.columns],
+                "dtypes": dtypes,
+                "missing_values": missing_values,
+                "rows": int(df.shape[0])
+            },
+            raw_data=content
+        )
+        db.add(dataset_record)
+        await db.commit()
+        await db.refresh(dataset_record)
+
         metadata = DatasetMetadata(
             filename=filename,
-            file_path=str(csv_path),
+            dataset_id=str(dataset_record.id),
+            file_path="",  # No longer saving to disk
             rows=int(df.shape[0]),
             columns=[str(col) for col in df.columns],
             dtypes=dtypes,
@@ -69,6 +81,5 @@ class FileManager:
         )
 
         return metadata
-
 
 file_manager = FileManager()

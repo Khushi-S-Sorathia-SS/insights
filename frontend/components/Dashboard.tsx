@@ -1,13 +1,14 @@
 'use client';
 
 import ChartDisplay from './ChartDisplay';
+import { ChartSchema } from '../utils/api-client';
 
 interface DashboardWidget {
   id: string;
   title: string;
   type: 'chart' | 'insight';
   content?: string;
-  chartUrl?: string;
+  chartSchema?: ChartSchema;
 }
 
 interface MetadataPreview {
@@ -21,14 +22,14 @@ interface MetadataPreview {
 
 interface DashboardProps {
   metadata?: MetadataPreview | null;
-  defaultChartUrls: string[];
+  defaultChartSchemas: ChartSchema[];
   autoInsights?: string;
   widgets: DashboardWidget[];
 }
 
 export default function Dashboard({
   metadata,
-  defaultChartUrls,
+  defaultChartSchemas,
   autoInsights,
   widgets,
 }: DashboardProps) {
@@ -44,131 +45,116 @@ export default function Dashboard({
     : [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <div className="bg-white rounded-2xl shadow-sm p-6 flex-1">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Dashboard overview</h2>
-          {metadata ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-gray-200 p-4">
-                <p className="text-sm text-gray-500">Rows</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{metadata.rows}</p>
-              </div>
-              <div className="rounded-2xl border border-gray-200 p-4">
-                <p className="text-sm text-gray-500">Columns</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{metadata.columns.length}</p>
-              </div>
-              <div className="rounded-2xl border border-gray-200 p-4">
-                <p className="text-sm text-gray-500">Missing values</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{totalMissing}</p>
-              </div>
-              <div className="rounded-2xl border border-gray-200 p-4">
-                <p className="text-sm text-gray-500">Numeric columns</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{numericColumns.length}</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">Upload a dataset to see KPI cards and data preview.</p>
-          )}
+    <div className="space-y-8 animate-fade-in pb-12">
+      {/* KPI Section */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="glass-card p-5 bg-indigo-500/5">
+          <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest">Total Records</p>
+          <p className="mt-2 text-3xl font-black text-white">{metadata?.rows || 0}</p>
+          <p className="mt-1 text-[10px] text-slate-400 truncate">{metadata?.filename || 'Pending upload'}</p>
         </div>
-
-        <div className="bg-white rounded-2xl shadow-sm p-6 flex-1">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Auto insights</h2>
-          {metadata ? (
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
-                <p className="text-sm text-gray-500">Dataset</p>
-                <p className="mt-2 text-sm text-gray-700">
-                  {metadata.filename} · {metadata.rows} rows · {metadata.columns.length} columns
-                </p>
-              </div>
-              <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
-                <p className="text-sm text-gray-500">Column types</p>
-                <p className="mt-2 text-sm text-gray-700">
-                  {Object.entries(metadata.dtypes)
-                    .map(([key, dtype]) => `${key}: ${dtype}`)
-                    .slice(0, 3)
-                    .join(', ')}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50 text-sm text-gray-700">
-                {autoInsights ? autoInsights : 'Initializing default insights and charts...'}
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">Default insights appear after upload.</p>
-          )}
+        <div className="glass-card p-5 bg-cyan-500/5">
+          <p className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest">Dimensions</p>
+          <p className="mt-2 text-3xl font-black text-white">{metadata?.columns.length || 0}</p>
+          <p className="mt-1 text-[10px] text-slate-400">Data features identified</p>
+        </div>
+        <div className="glass-card p-5 bg-emerald-500/5">
+          <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest">Quality Score</p>
+          <p className="mt-2 text-3xl font-black text-white">
+            {metadata ? Math.max(0, 100 - Math.round((totalMissing / (metadata.rows * metadata.columns.length || 1)) * 100)) : 0}%
+          </p>
+          <p className="mt-1 text-[10px] text-slate-400">Inference reliability</p>
+        </div>
+        <div className="glass-card p-5 bg-amber-500/5">
+          <p className="text-[10px] font-bold text-amber-300 uppercase tracking-widest">Metric Depth</p>
+          <p className="mt-2 text-3xl font-black text-white">{numericColumns.length}</p>
+          <p className="mt-1 text-[10px] text-slate-400">Continuous variables</p>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2 space-y-4">
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Charts</h2>
-            </div>
-            {defaultChartUrls.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                {defaultChartUrls.map((chartUrl, index) => (
-                  <ChartDisplay key={`default-chart-${index}`} base64Image={chartUrl} title={`Default chart ${index + 1}`} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500">Default charts will appear here once the dataset is uploaded.</p>
-            )}
-          </div>
+      {/* AI Intelligence Summary */}
+      <div className="glass-card p-6 border-l-4 border-l-indigo-500 bg-indigo-500/10">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></div>
+          <h2 className="text-xs font-black text-indigo-200 uppercase tracking-widest">AI Analytical Synthesis</h2>
+        </div>
+        <div className="text-sm text-slate-100 leading-relaxed font-medium">
+          {autoInsights || (metadata ? "Ingesting workforce vectors and identifying latent patterns..." : "Upload a dataset to activate the neural analysis engine.")}
+        </div>
+      </div>
 
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Dashboard widgets</h2>
-            {widgets.length === 0 ? (
-              <p className="text-sm text-gray-500">Chat responses with charts or insights will be added here.</p>
-            ) : (
-              <div className="space-y-4">
-                {widgets.map((widget) => (
-                  <div key={widget.id} className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-semibold text-gray-900">{widget.title}</h3>
-                      <span className="text-xs text-gray-500">{widget.type}</span>
-                    </div>
-                    {widget.chartUrl ? (
-                      <ChartDisplay base64Image={widget.chartUrl} title={widget.title} />
-                    ) : (
-                      <p className="text-sm text-gray-700 whitespace-pre-line">{widget.content}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+      {/* Main Charts Section */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white">Autonomous Visualizations</h2>
+          {(metadata || widgets.length > 0) && <span className="text-[10px] font-bold text-indigo-400 bg-indigo-400/10 px-2 py-1 rounded">LIVE ENGINE</span>}
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Data preview</h2>
-          {metadata && metadata.preview_rows.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm text-gray-700">
-                <thead className="border-b border-gray-200 bg-gray-50">
-                  <tr>
-                    {metadata.columns.map((column) => (
-                      <th key={column} className="px-3 py-2 font-medium text-gray-900">{column}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {metadata.preview_rows.map((row, rowIndex) => (
-                    <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      {metadata.columns.map((column) => (
-                        <td key={`${rowIndex}-${column}`} className="px-3 py-2 align-top">
-                          {String(row[column] ?? '')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* Insight / text widgets shown first */}
+        {widgets.filter(w => w.type === 'insight').map((widget) => (
+          <div key={widget.id} className="glass-card p-6 border-l-4 border-l-cyan-500 bg-cyan-500/5">
+            <p className="text-xs font-bold text-cyan-300 uppercase tracking-widest mb-2">{widget.title}</p>
+            <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-line">{widget.content}</p>
+          </div>
+        ))}
+
+        {/* Chart widgets — combine defaultChartSchemas + DB-restored chart widgets */}
+        {(() => {
+          const schemaCharts = defaultChartSchemas.map((schema, i) => ({ id: `default-${i}`, chartSchema: schema, title: schema.title || 'Chart' }));
+          const dbCharts = widgets.filter(w => w.type === 'chart' && w.chartSchema);
+          const allCharts = [...schemaCharts, ...dbCharts];
+
+          return allCharts.length > 0 ? (
+            <div className="grid gap-6 md:grid-cols-2">
+              {allCharts.map((item) => (
+                <div key={item.id} className="glass-card overflow-hidden">
+                  <div className="px-6 py-3 border-b border-white/5 bg-white/5">
+                    <h3 className="text-xs font-bold text-indigo-300 uppercase tracking-widest">{item.title}</h3>
+                  </div>
+                  <div className="p-4">
+                    <ChartDisplay schema={item.chartSchema!} />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">A preview table will appear after dataset upload.</p>
+            <div className="glass-card p-16 text-center">
+              <p className="text-slate-500 text-sm font-medium">No visualizations generated. Ingest data to populate this workspace.</p>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Data Architecture & Preview (Simplified) */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="glass-card p-6">
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Data Schema</h2>
+          {metadata ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {Object.entries(metadata.dtypes).slice(0, 16).map(([col, type]) => (
+                <div key={col} className="flex items-center justify-between py-1.5 border-b border-white/5">
+                  <span className="text-[11px] text-slate-300 font-medium truncate pr-2">{col}</span>
+                  <span className="text-[9px] font-mono text-indigo-400">{type}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 italic">No schema detected.</p>
+          )}
+        </div>
+        
+        <div className="glass-card p-6">
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Vector Samples</h2>
+          {metadata && metadata.preview_rows.length > 0 ? (
+            <div className="space-y-3">
+              {metadata.preview_rows.slice(0, 4).map((row, i) => (
+                <div key={i} className="text-[10px] text-slate-400 bg-black/20 p-2 rounded border border-white/5 font-mono">
+                  {Object.values(row).slice(0, 5).join(' | ')}...
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 italic">No samples available.</p>
           )}
         </div>
       </div>

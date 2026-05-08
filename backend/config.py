@@ -45,16 +45,10 @@ class Settings(BaseSettings):
     # Sandbox Configuration
     SANDBOX_TIMEOUT: int = int(os.getenv("SANDBOX_TIMEOUT", "20"))
     MAX_UPLOAD_SIZE: int = int(os.getenv("MAX_UPLOAD_SIZE", "10485760"))  # 10 MB
-    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/tmp/uploads")
 
-    # Redis (Optional)
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    REDIS_ENABLED: bool = os.getenv("REDIS_ENABLED", "false").lower() == "true"
+    # PostgreSQL
+    POSTGRES_URI: str = os.getenv("POSTGRES_URI", "postgresql+asyncpg://postgres:postgres@localhost:5432/insights")
 
-    # MongoDB (Optional)
-    MONGODB_URI: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "insights_chatbot")
-    MONGODB_ENABLED: bool = os.getenv("MONGODB_ENABLED", "false").lower() == "true"
 
     # Session Configuration
     SESSION_TIMEOUT_HOURS: int = int(os.getenv("SESSION_TIMEOUT_HOURS", "24"))
@@ -109,9 +103,6 @@ class Settings(BaseSettings):
             raise ValueError("AZURE_OPENAI_ENDPOINT environment variable is not set")
         if not self.AZURE_OPENAI_DEPLOYMENT_NAME:
             raise ValueError("AZURE_OPENAI_DEPLOYMENT_NAME environment variable is not set")
-
-        # Create upload directory if it doesn't exist
-        Path(self.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
     def is_production(self) -> bool:
         """Check if running in production."""

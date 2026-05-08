@@ -10,8 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import get_settings
+from .db.database import init_db
 from .routes.chat import router as chat_router
 from .routes.upload import router as upload_router
+from .routes.dashboard import router as dashboard_router
 from .utils.error_handler import InsightsException
 from .utils.logger import get_logger
 from .utils.langsmith_tracer import get_langsmith_tracer
@@ -27,11 +29,17 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Insights Chatbot...")
     logger.info(f"Environment: {settings.FASTAPI_ENV}")
     logger.info(f"Debug: {settings.DEBUG}")
-    logger.info(f"Upload directory: {settings.UPLOAD_DIR}")
     
     # Initialize LangSmith tracing
     tracer = get_langsmith_tracer()
     tracer.initialize()
+
+    # Initialize Database
+    try:
+        await init_db()
+        logger.info("Database initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
 
     yield
 
@@ -112,6 +120,7 @@ async def root():
 # Include routers
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(chat_router, prefix="/api", tags=["Chat"])
+app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 
 
 if __name__ == "__main__":
