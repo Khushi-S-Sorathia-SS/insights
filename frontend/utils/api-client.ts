@@ -52,85 +52,6 @@ export interface ParsedCommand {
   };
 }
 
-export function parseChatCommand(message: string): ParsedCommand {
-  const text = message.toLowerCase().trim();
-  
-  // Check for replace commands
-  const replacePatterns = [
-    /replace\s+(\w+)\s+chart\s+with\s+(\w+)\s+chart/i,
-    /change\s+(\w+)\s+chart\s+to\s+(\w+)\s+chart/i,
-    /swap\s+(\w+)\s+chart\s+for\s+(\w+)\s+chart/i,
-    /switch\s+(\w+)\s+chart\s+with\s+(\w+)\s+chart/i
-  ];
-  
-  for (const pattern of replacePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      return {
-        intent: 'replace',
-        params: {
-          source_type: match[1],
-          target_type: match[2]
-        }
-      };
-    }
-  }
-  
-  // Check for create commands
-  const createPatterns = [
-    /create\s+a\s+(\w+)\s+chart/i,
-    /add\s+a\s+(\w+)\s+chart/i,
-    /show\s+me\s+a\s+(\w+)\s+chart/i,
-    /make\s+a\s+(\w+)\s+chart/i
-  ];
-  
-  for (const pattern of createPatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      return {
-        intent: 'create',
-        params: {
-          chart_type: match[1]
-        }
-      };
-    }
-  }
-  
-  // Check for analysis commands
-  if (/\b(chart|plot|graph|visualize|show)\b/.test(text)) {
-    const chartTypes = ['pie', 'bar', 'line', 'area', 'scatter', 'radar', 'histogram'];
-    for (const chartType of chartTypes) {
-      if (text.includes(chartType)) {
-        return {
-          intent: 'analysis',
-          params: {
-            chart_type: chartType
-          }
-        };
-      }
-    }
-    return {
-      intent: 'analysis',
-      params: {}
-    };
-  }
-  
-  // Check for direct questions
-  const directKeywords = ['how many', 'what is', 'who', 'where', 'when', 'missing', 'duplicate', 'summary', 'count'];
-  if (directKeywords.some(keyword => text.includes(keyword))) {
-    return {
-      intent: 'direct',
-      params: {}
-    };
-  }
-  
-  // Default to analysis
-  return {
-    intent: 'analysis',
-    params: {}
-  };
-}
-
 export async function uploadFile(file: File): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -151,8 +72,7 @@ export async function sendMessage(
   sessionId: string,
   message: string
 ): Promise<ChatResponse> {
-  const parsedCommand = parseChatCommand(message);
-  
+
   const response = await fetch(`${API_URL}/api/chat`, {
     method: 'POST',
     headers: {
@@ -161,7 +81,7 @@ export async function sendMessage(
     body: JSON.stringify({
       session_id: sessionId,
       message,
-      parsed_command: parsedCommand,
+
     }),
   });
 
