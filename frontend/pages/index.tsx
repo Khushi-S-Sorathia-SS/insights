@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import FileUpload from '../components/FileUpload';
 import ChatWindow from '../components/ChatWindow';
@@ -18,6 +18,16 @@ interface DashboardWidget {
   type: 'chart' | 'insight';
   content?: string;
   chartSchema?: ChartSchema;
+  position?: { x: number; y: number; w: number; h: number };
+}
+
+interface DashboardProps {
+  sessionId: string | null;
+  metadata?: UploadMetadata | null;
+  widgets: DashboardWidget[];
+  onWidgetsChange?: (widgets: DashboardWidget[]) => void;
+  defaultChartSchemas?: ChartSchema[];
+  autoInsights?: string;
 }
 
 export default function Home() {
@@ -30,32 +40,45 @@ export default function Home() {
   const [autoInsights, setAutoInsights] = useState<string>('');
   const [dashboardWidgets, setDashboardWidgets] = useState<DashboardWidget[]>([]);
 
+  const refreshDashboard = async (currentSessionId: string) => {
+    try {
+      const data = await getDashboard(currentSessionId);
+      if (data.dashboard_id) {
+        localStorage.setItem('insightai_dashboard_id', data.dashboard_id);
+      }
+      setDashboardWidgets(data.widgets as DashboardWidget[]);
+    } catch (error) {
+      console.error('Failed to refresh dashboard', error);
+    }
+  };
+
   useEffect(() => {
     const savedSessionId = localStorage.getItem('insightai_session_id');
     const savedDashboardId = localStorage.getItem('insightai_dashboard_id');
 
-    if (savedSessionId) setSessionId(savedSessionId);
-
-    // Prefer fetching by dashboard_id — works even after backend restarts
     if (savedDashboardId) {
       getDashboardById(savedDashboardId)
         .then((data) => {
-          if (data && data.widgets && data.widgets.length > 0) {
+          if (data && data.widgets) {
             setDashboardWidgets(data.widgets as DashboardWidget[]);
           }
-        })
-        .catch(console.error);
-    } else if (savedSessionId) {
-      // Fallback: try session-based fetch (only works if backend still has session in memory)
-      getDashboard(savedSessionId)
-        .then((data) => {
-          if (data && data.widgets && data.widgets.length > 0) {
-            setDashboardWidgets(data.widgets as DashboardWidget[]);
+          if (data.dashboard_id) {
+            localStorage.setItem('insightai_dashboard_id', data.dashboard_id);
           }
         })
         .catch(console.error);
     }
+
+    if (savedSessionId) {
+      setSessionId(savedSessionId);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    localStorage.setItem('insightai_session_id', sessionId);
+    refreshDashboard(sessionId);
+  }, [sessionId]);
 
   const handleUpload = async (file: File) => {
     try {
@@ -70,23 +93,14 @@ export default function Home() {
       setDefaultChartSchemas(response.default_chart_schemas ?? []);
       setAutoInsights(response.auto_insights ?? '');
 
-      const initialWidgets: DashboardWidget[] = [];
-      if (response.auto_insights) {
-        initialWidgets.push({
-          id: 'widget-auto-insights',
-          title: 'Autonomous Data Ingestion',
-          type: 'insight',
-          content: response.auto_insights,
-        });
-      }
-      setDashboardWidgets(initialWidgets);
-
       setMessages([
         {
           role: 'assistant',
           content: `Ingestion complete. Dataset "${response.metadata.filename}" has been indexed. I am ready for advanced analytical queries.`,
         },
       ]);
+
+      await refreshDashboard(response.session_id);
     } catch (error) {
       setUploadError('Data ingestion failed. Ensure the CSV format is valid.');
       throw error;
@@ -110,29 +124,11 @@ export default function Home() {
       };
       setMessages((current) => [...current, assistantMessage]);
 
-      const widgetId = `widget-${Date.now()}`;
-      if (response.chart_schema) {
-        setDashboardWidgets((current) => [
-          ...current,
-          {
-            id: widgetId,
-            title: `Analysis: ${message.slice(0, 30)}...`,
-            type: 'chart',
-            chartSchema: response.chart_schema,
-            content: response.content,
-          },
-        ]);
-      } else {
-        setDashboardWidgets((current) => [
-          ...current,
-          {
-            id: widgetId,
-            title: 'Statistical Insight',
-            type: 'insight',
-            content: response.content,
-          },
-        ]);
+      if (response.dashboard_id) {
+        localStorage.setItem('insightai_dashboard_id', response.dashboard_id);
       }
+
+      await refreshDashboard(sessionId);
     } catch (error) {
       setMessages((current) => [
         ...current,
@@ -179,10 +175,12 @@ export default function Home() {
           {/* Main Dashboard Section */}
           <div className="lg:col-span-8 space-y-8">
             <Dashboard
+              sessionId={sessionId}
               metadata={datasetMetadata}
               defaultChartSchemas={defaultChartSchemas}
               autoInsights={autoInsights}
               widgets={dashboardWidgets}
+              onWidgetsChange={setDashboardWidgets}
             />
           </div>
 

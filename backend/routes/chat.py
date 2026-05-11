@@ -21,4 +21,4 @@ router = APIRouter()
 async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResponse:
     """Process a chat message and return analysis."""
     logger.info(f"Chat endpoint called. Session: {request.session_id}")
-    return await process_chat_request(request.session_id, request.message, db)
+    return await process_chat_request(request.session_id, request.message, db, request.parsed_command)

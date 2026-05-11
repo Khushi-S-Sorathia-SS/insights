@@ -1,8 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
 
 :root {
   --background: #0b1326;
@@ -103,4 +103,68 @@ body {
   border-radius: 8px !important;
   backdrop-filter: blur(10px) !important;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* React Grid Layout Overrides */
+.react-grid-placeholder {
+  background: var(--primary) !important;
+  opacity: 0.1 !important;
+  border-radius: 1rem !important;
+  border: 2px dashed var(--primary) !important;
+}
+
+.react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.react-resizable-handle-se {
+  bottom: 8px;
+  right: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+}
+
+/* GridStack Premium Styling */
+.grid-stack {
+  background: transparent;
+}
+
+.grid-stack-item-content {
+  inset: 4px !important;
+  border-radius: 1rem;
+}
+
+.grid-stack-placeholder > .placeholder-content {
+  background: var(--primary) !important;
+  opacity: 0.1 !important;
+  border: 2px dashed var(--primary) !important;
+  border-radius: 1rem !important;
+}
+
+.ui-resizable-handle {
+  filter: invert(1);
+  opacity: 0.3;
+}
+
+.drag-handle {
+  cursor: grab;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }

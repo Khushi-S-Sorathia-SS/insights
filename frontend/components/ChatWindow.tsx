@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, FormEvent } from 'react';
 import ChartDisplay from './ChartDisplay';
 import { ChartSchema } from '../utils/api-client';
 

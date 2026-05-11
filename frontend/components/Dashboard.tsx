@@ -1,162 +1,275 @@
 'use client';
 
+import { useState, useEffect, useRef } from 'react';
+import { History, RotateCcw, Maximize2, Move, Clock, ChevronDown, Save, GripVertical } from 'lucide-react';
 import ChartDisplay from './ChartDisplay';
-import { ChartSchema } from '../utils/api-client';
-
-interface DashboardWidget {
-  id: string;
-  title: string;
-  type: 'chart' | 'insight';
-  content?: string;
-  chartSchema?: ChartSchema;
-}
-
-interface MetadataPreview {
-  filename: string;
-  rows: number;
-  columns: string[];
-  dtypes: Record<string, string>;
-  missing_values: Record<string, number>;
-  preview_rows: Array<Record<string, string | number | null>>;
-}
+import { 
+  ChartSchema, 
+  DashboardWidgetData, 
+  DashboardVersion, 
+  getVersions, 
+  rollbackDashboard, 
+  updateLayout,
+  getDashboardById
+} from '../utils/api-client';
 
 interface DashboardProps {
-  metadata?: MetadataPreview | null;
-  defaultChartSchemas: ChartSchema[];
+  sessionId: string | null;
+  metadata?: any | null;
+  widgets: DashboardWidgetData[];
+  onWidgetsChange?: (widgets: DashboardWidgetData[]) => void;
+  defaultChartSchemas?: ChartSchema[];
   autoInsights?: string;
-  widgets: DashboardWidget[];
 }
 
 export default function Dashboard({
+  sessionId,
   metadata,
+  widgets,
+  onWidgetsChange,
   defaultChartSchemas,
   autoInsights,
-  widgets,
 }: DashboardProps) {
-  const totalMissing = metadata
-    ? Object.values(metadata.missing_values).reduce((sum, value) => sum + value, 0)
-    : 0;
+  const [versions, setVersions] = useState<DashboardVersion[]>([]);
+  const [currentVersion, setCurrentVersion] = useState<number>(0);
+  const [showHistory, setShowHistory] = useState(false);
+  const [isLayoutChanged, setIsLayoutChanged] = useState(false);
+  
+  const [localWidgets, setLocalWidgets] = useState<DashboardWidgetData[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragInfo = useRef<{ id: string; type: 'move' | 'resize'; startX: number; startY: number; initialPos: any; pointerId: number; target: HTMLElement } | null>(null);
 
-  const numericColumns = metadata
-    ? metadata.columns.filter((column) => {
-        const dtype = metadata.dtypes[column]?.toLowerCase() || '';
-        return ['int', 'float', 'double', 'number'].some((token) => dtype.includes(token));
-      })
-    : [];
+  useEffect(() => {
+    setLocalWidgets(widgets.map(w => ({
+      ...w,
+      position: w.position || { x: 0, y: 0, w: 6, h: 4 }
+    })));
+  }, [widgets]);
+
+  useEffect(() => {
+    if (sessionId) {
+      getVersions(sessionId).then(data => {
+        setVersions(data.versions);
+        if (data.versions.length > 0) setCurrentVersion(data.versions[0].version);
+      });
+    }
+  }, [sessionId, widgets]);
+
+  const startDrag = (e: React.PointerEvent, id: string, type: 'move' | 'resize') => {
+    const widget = localWidgets.find(w => w.id === id);
+    if (!widget) return;
+
+    e.preventDefault();
+
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+
+    dragInfo.current = {
+      id,
+      type,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialPos: { ...widget.position },
+      pointerId: e.pointerId,
+      target
+    };
+    setActiveId(id);
+  };
+
+  const handlePointerMove = (e: PointerEvent | React.PointerEvent) => {
+    if (!dragInfo.current || !containerRef.current) return;
+
+    const { id, type, startX, startY, initialPos } = dragInfo.current;
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+
+    const colWidth = containerRef.current.offsetWidth / 12;
+    const rowHeight = 100;
+
+    const gridDeltaX = deltaX / colWidth;
+    const gridDeltaY = deltaY / rowHeight;
+
+    setLocalWidgets(prev => prev.map(w => {
+      if (w.id !== id) return w;
+      const newPos = { ...w.position! };
+      if (type === 'move') {
+        newPos.x = Math.max(0, Math.min(12 - newPos.w, initialPos.x + gridDeltaX));
+        newPos.y = Math.max(0, initialPos.y + gridDeltaY);
+      } else {
+        newPos.w = Math.max(2, Math.min(12 - initialPos.x, initialPos.w + gridDeltaX));
+        newPos.h = Math.max(2, initialPos.h + gridDeltaY);
+      }
+      return { ...w, position: newPos };
+    }));
+    setIsLayoutChanged(true);
+  };
+
+  const stopDrag = () => {
+    if (!dragInfo.current) return;
+
+    setLocalWidgets(prev => prev.map(w => {
+      if (w.id !== dragInfo.current?.id) return w;
+      return {
+        ...w,
+        position: {
+          x: Math.round(w.position!.x),
+          y: Math.round(w.position!.y),
+          w: Math.round(w.position!.w),
+          h: Math.round(w.position!.h)
+        }
+      };
+    }));
+
+    if (dragInfo.current.target) {
+      dragInfo.current.target.releasePointerCapture(dragInfo.current.pointerId);
+    }
+
+    dragInfo.current = null;
+    setActiveId(null);
+  };
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => handlePointerMove(event);
+    const onPointerUp = () => stopDrag();
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [containerRef, localWidgets]);
+
+  const saveLayout = async () => {
+    if (!sessionId) return;
+    try {
+      await updateLayout(sessionId, localWidgets.map(w => ({ id: w.id, position: w.position })));
+      setIsLayoutChanged(false);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleRollback = async (vId: string) => {
+    if (!sessionId) return;
+    await rollbackDashboard(sessionId, vId);
+    const data = await getDashboardById(vId);
+    if (onWidgetsChange) onWidgetsChange(data.widgets);
+    const versionEntry = versions.find((entry) => entry.id === vId);
+    if (versionEntry) {
+      setCurrentVersion(versionEntry.version);
+    }
+    const refreshed = await getVersions(sessionId);
+    setVersions(refreshed.versions);
+    setShowHistory(false);
+  };
 
   return (
-    <div className="space-y-8 animate-fade-in pb-12">
-      {/* KPI Section */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="glass-card p-5 bg-indigo-500/5">
-          <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest">Total Records</p>
-          <p className="mt-2 text-3xl font-black text-white">{metadata?.rows || 0}</p>
-          <p className="mt-1 text-[10px] text-slate-400 truncate">{metadata?.filename || 'Pending upload'}</p>
+    <div className="space-y-6 pb-20 select-none">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-black text-white tracking-tighter">INSIGHTS ENGINE</h2>
+          <div className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-[10px] font-bold text-indigo-400 tracking-widest uppercase">Version {currentVersion}</div>
         </div>
-        <div className="glass-card p-5 bg-cyan-500/5">
-          <p className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest">Dimensions</p>
-          <p className="mt-2 text-3xl font-black text-white">{metadata?.columns.length || 0}</p>
-          <p className="mt-1 text-[10px] text-slate-400">Data features identified</p>
-        </div>
-        <div className="glass-card p-5 bg-emerald-500/5">
-          <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest">Quality Score</p>
-          <p className="mt-2 text-3xl font-black text-white">
-            {metadata ? Math.max(0, 100 - Math.round((totalMissing / (metadata.rows * metadata.columns.length || 1)) * 100)) : 0}%
-          </p>
-          <p className="mt-1 text-[10px] text-slate-400">Inference reliability</p>
-        </div>
-        <div className="glass-card p-5 bg-amber-500/5">
-          <p className="text-[10px] font-bold text-amber-300 uppercase tracking-widest">Metric Depth</p>
-          <p className="mt-2 text-3xl font-black text-white">{numericColumns.length}</p>
-          <p className="mt-1 text-[10px] text-slate-400">Continuous variables</p>
+        <div className="flex gap-3">
+          {isLayoutChanged && (
+            <button onClick={saveLayout} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-xl shadow-indigo-500/20 flex items-center gap-2">
+              <Save className="w-4 h-4" /> PERSIST CHANGES
+            </button>
+          )}
+          <button onClick={() => setShowHistory(!showHistory)} className="px-5 py-2.5 bg-white/5 border border-white/10 text-slate-300 rounded-xl text-xs font-bold hover:bg-white/10 transition-all flex items-center gap-2">
+            <History className="w-4 h-4" /> LOGS
+          </button>
         </div>
       </div>
 
-      {/* AI Intelligence Summary */}
-      <div className="glass-card p-6 border-l-4 border-l-indigo-500 bg-indigo-500/10">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></div>
-          <h2 className="text-xs font-black text-indigo-200 uppercase tracking-widest">AI Analytical Synthesis</h2>
-        </div>
-        <div className="text-sm text-slate-100 leading-relaxed font-medium">
-          {autoInsights || (metadata ? "Ingesting workforce vectors and identifying latent patterns..." : "Upload a dataset to activate the neural analysis engine.")}
-        </div>
-      </div>
-
-      {/* Main Charts Section */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Autonomous Visualizations</h2>
-          {(metadata || widgets.length > 0) && <span className="text-[10px] font-bold text-indigo-400 bg-indigo-400/10 px-2 py-1 rounded">LIVE ENGINE</span>}
-        </div>
-
-        {/* Insight / text widgets shown first */}
-        {widgets.filter(w => w.type === 'insight').map((widget) => (
-          <div key={widget.id} className="glass-card p-6 border-l-4 border-l-cyan-500 bg-cyan-500/5">
-            <p className="text-xs font-bold text-cyan-300 uppercase tracking-widest mb-2">{widget.title}</p>
-            <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-line">{widget.content}</p>
-          </div>
-        ))}
-
-        {/* Chart widgets — combine defaultChartSchemas + DB-restored chart widgets */}
-        {(() => {
-          const schemaCharts = defaultChartSchemas.map((schema, i) => ({ id: `default-${i}`, chartSchema: schema, title: schema.title || 'Chart' }));
-          const dbCharts = widgets.filter(w => w.type === 'chart' && w.chartSchema);
-          const allCharts = [...schemaCharts, ...dbCharts];
-
-          return allCharts.length > 0 ? (
-            <div className="grid gap-6 md:grid-cols-2">
-              {allCharts.map((item) => (
-                <div key={item.id} className="glass-card overflow-hidden">
-                  <div className="px-6 py-3 border-b border-white/5 bg-white/5">
-                    <h3 className="text-xs font-bold text-indigo-300 uppercase tracking-widest">{item.title}</h3>
-                  </div>
-                  <div className="p-4">
-                    <ChartDisplay schema={item.chartSchema!} />
-                  </div>
-                </div>
-              ))}
+      {showHistory && (
+        <div className="glass-card p-5 border border-white/10 bg-slate-950/50">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-100 uppercase tracking-[0.2em]">Dashboard history</h3>
+              <p className="text-xs text-slate-500">Saved versions can be restored at any time.</p>
             </div>
-          ) : (
-            <div className="glass-card p-16 text-center">
-              <p className="text-slate-500 text-sm font-medium">No visualizations generated. Ingest data to populate this workspace.</p>
+            <span className="rounded-full bg-slate-900/80 text-[10px] px-3 py-1 uppercase tracking-[0.2em] text-slate-400">{versions.length} versions</span>
+          </div>
+          <div className="grid gap-3">
+            {versions.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 p-4 text-sm text-slate-400">No saved versions yet.</div>
+            ) : (
+              versions.map((version) => (
+                <div key={version.id} className={`rounded-2xl border p-4 flex items-center justify-between gap-4 ${version.version === currentVersion ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/10 bg-slate-950/60'}`}>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-100">Version {version.version}</p>
+                    <p className="text-xs text-slate-500">{new Date(version.created_at).toLocaleString()}</p>
+                  </div>
+                  <button
+                    onClick={() => handleRollback(version.id)}
+                    disabled={version.version === currentVersion}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${version.version === currentVersion ? 'bg-white/10 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
+                  >
+                    {version.version === currentVersion ? 'Active' : 'Rollback'}
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      <div 
+        ref={containerRef}
+        className="relative w-full min-h-[1200px] bg-slate-900/40 rounded-[2.5rem] border border-white/5 p-6 backdrop-blur-3xl touch-none"
+      >
+        {localWidgets.map((w) => {
+          const pos = w.position!;
+          return (
+            <div
+              key={w.id}
+              className={`absolute transition-[border-color,background-color] duration-300 ${activeId === w.id ? 'z-50' : 'z-10'}`}
+              style={{
+                left: `${(pos.x / 12) * 100}%`,
+                top: `${pos.y * 100}px`,
+                width: `${(pos.w / 12) * 100}%`,
+                height: `${pos.h * 100}px`,
+                padding: '12px'
+              }}
+            >
+              <div className={`w-full h-full glass-card flex flex-col overflow-hidden group transition-all ${activeId === w.id ? 'ring-2 ring-indigo-500/50 shadow-2xl bg-white/5' : 'bg-white/[0.02]'}`}>
+                {/* Drag Handle */}
+                <div 
+                  onPointerDown={(e) => startDrag(e, w.id, 'move')}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={stopDrag}
+                  className="px-6 py-4 border-b border-white/5 bg-white/5 flex items-center justify-between cursor-grab active:cursor-grabbing touch-none"
+                >
+                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] truncate">{w.title}</span>
+                  <GripVertical className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 transition-colors" />
+                </div>
+
+                <div className="flex-1 overflow-hidden relative">
+                  {w.type === 'chart' ? (
+                    <ChartDisplay schema={w.chartSchema!} />
+                  ) : (
+                    <div className="text-sm text-slate-300 leading-relaxed overflow-y-auto h-full custom-scrollbar pr-2 pointer-events-auto p-6">
+                      {w.content}
+                    </div>
+                  )}
+                </div>
+
+                {/* Resize Handle */}
+                <div 
+                  onPointerDown={(e) => startDrag(e, w.id, 'resize')}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={stopDrag}
+                  className="absolute bottom-2 right-2 w-10 h-10 cursor-se-resize flex items-end justify-end p-2 opacity-0 group-hover:opacity-100 transition-opacity touch-none"
+                >
+                  <div className="w-4 h-4 border-r-2 border-b-2 border-indigo-500/30 rounded-br-sm group-hover:border-indigo-500 transition-colors"></div>
+                </div>
+              </div>
             </div>
           );
-        })()}
-      </div>
-
-      {/* Data Architecture & Preview (Simplified) */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="glass-card p-6">
-          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Data Schema</h2>
-          {metadata ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              {Object.entries(metadata.dtypes).slice(0, 16).map(([col, type]) => (
-                <div key={col} className="flex items-center justify-between py-1.5 border-b border-white/5">
-                  <span className="text-[11px] text-slate-300 font-medium truncate pr-2">{col}</span>
-                  <span className="text-[9px] font-mono text-indigo-400">{type}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500 italic">No schema detected.</p>
-          )}
-        </div>
-        
-        <div className="glass-card p-6">
-          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Vector Samples</h2>
-          {metadata && metadata.preview_rows.length > 0 ? (
-            <div className="space-y-3">
-              {metadata.preview_rows.slice(0, 4).map((row, i) => (
-                <div key={i} className="text-[10px] text-slate-400 bg-black/20 p-2 rounded border border-white/5 font-mono">
-                  {Object.values(row).slice(0, 5).join(' | ')}...
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500 italic">No samples available.</p>
-          )}
-        </div>
+        })}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import { useRef, useState, ChangeEvent } from 'react';
 
 interface FileUploadProps {
   onUpload: (file: File) => Promise<void>;

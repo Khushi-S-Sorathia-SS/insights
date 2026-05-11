@@ -1,102 +1,93 @@
-# System Architecture: Employee Dataset Insight Chatbot
+# System Architecture: InsightAI — Workforce Intelligence Platform
 
 ## Overview
 
-This document describes the system architecture, data flow, and component interactions for the Employee Dataset Insight Chatbot MVP.
+This document describes the system architecture, data flow, component interactions, and design decisions for the InsightAI platform.
 
-**Core Concept**: Transform CSV data into an interactive AI analyst that answers questions in natural language.
+**Core Concept**: Transform CSV datasets into an interactive, AI-driven analytics dashboard with version-controlled state, secure cloud-sandbox execution, and schema-driven visualizations.
+
+**Architecture Style**: Layered deep-agent pipeline with persistent PostgreSQL storage and ephemeral cloud sandboxing.
 
 ---
 
 ## System Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        FRONTEND (Next.js)                           │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐   │
-│  │  File Upload     │  │  Chat Window     │  │ Visualization  │   │
-│  │   Component      │  │   (Messages)     │  │ Engine (Schema)│   │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────────────┘   │
-│           │                     │                                   │
-│           └─────────────────────┼───────────────────────────────┘  │
-│                                 │                                   │
-│                          HTTP & WebSocket                          │
-│                                 │                                   │
-└─────────────────────────────────┼───────────────────────────────────┘
-                                  │
-                    ┌─────────────▼──────────────┐
-                    │   FASTAPI BACKEND (8000)  │
-                    │  ┌──────────────────────┐ │
-                    │  │ POST /upload         │ │
-                    │  │ POST /chat           │ │
-                    │  └──────────────────────┘ │
-                    └──────────┬────────────────┘
-                               │
-          ┌────────────────────┼────────────────────┐
-          │                    │                    │
-      ┌───▼────┐        ┌──────▼──────┐     ┌──────▼──────┐
-      │ SESSION │        │  LANGGRAPH  │     │  DAYTONA    │
-      │ MANAGER │        │  WORKFLOW   │     │  SANDBOX    │
-      │(In-Mem) │        │  (Routing)  │     │ (agent_planner)│
-      └────┬────┘        └──────┬──────┘     └──────┬──────┘
-           │                    │                    │
-           │              ┌─────▼──────────┐        │
-           │              │  Intent        │        │
-           │              │  Classifier    │        │
-           │              └─────┬──────────┘        │
-           │                    │                   │
-           │                    ├───(Type A)────────┼─────────┐
-           │                    │  Direct Response  │         │
-           │                    │  (From Context)   │         │
-           │                    │                   │         │
-           │                    └───(Type B)────────┼─────────┤
-           │                       Data Action      │         │
-           │                                        │         │
-           │                     ┌──────────────────┘         │
-           │                     │                            │
-           │              ┌──────▼──────────┐                │
-           │              │ Agent Planner   │                │
-           │              │ (LangChain +    │                │
-           │              │  Azure OpenAI)  │                │
-           │              └──────┬──────────┘                │
-           │                     │                            │
-           │              ┌──────▼──────────┐                │
-           │              │  Code Generator │                │
-           │              │  (Python)       │                │
-           │              └──────┬──────────┘                │
-           │                     │                            │
-           │                     │ (Aggregations/Pandas)      │
-           │                     │                            │
-           │                     └──────────────────┬─────────┘
-           │                                        │
-           │                                   ┌────▼──────────┐
-           │                                   │ Code Executor │
-           │                                   │ + Validator   │
-           │                                   └────┬──────────┘
-           │                                        │
-           │                                   ┌────▼──────────┐
-           │                                   │  Pandas       │
-           │                                   │  NumPy        │
-           │                                   │  (No plots)   │
-           │                                   └────┬──────────┘
-           │                                        │
-           │                     ┌──────────────────┘
-           │                     │
-           │              ┌──────▼──────────┐
-           │              │ Response        │
-           │              │ Formatter       │
-           │              └──────┬──────────┘
-           │                     │
-           │        ┌──────────────┼─────────────┐
-           │        │              │             │
-           └────────┼──────► TEXT  │ CHART SCHEMA│ ERROR MSG
-                    │              │             │
-                    └──────────────┼─────────────┘
-                                   │
-                    ┌──────────────▼─────────────┐
-                    │  Response to Frontend      │
-                    │  (Text + Chart JSON Schema)│
-                    └────────────────────────────┘
+```mermaid
+flowchart TD
+  subgraph Frontend["Frontend (Next.js + Recharts)"]
+    UI_Upload["FileUpload.tsx"]
+    UI_Chat["ChatWindow.tsx"]
+    UI_Dash["Dashboard.tsx<br/>(Draggable Grid)"]
+    UI_Chart["ChartDisplay.tsx<br/>(Generic Registry)"]
+  end
+
+  subgraph API["FastAPI Backend (:8000)"]
+    R_Upload["POST /api/upload"]
+    R_Chat["POST /api/chat"]
+    R_Dash["GET/POST /api/dashboard/*"]
+    Health["GET /health"]
+  end
+
+  subgraph Pipeline["LangGraph Pipeline"]
+    Intent["Intent Classifier<br/>(LLM + Fallback)"]
+    Direct["Direct Response<br/>(Pandas fast path)"]
+    Agent["DeepAgents<br/>Agent Planner"]
+  end
+
+  subgraph Sandbox["Daytona Cloud Sandbox"]
+    SB_Upload["Upload CSV bytes"]
+    SB_Exec["Execute Python<br/>(pandas, analysis)"]
+    SB_Read["Read chart_schemas.json"]
+  end
+
+  subgraph Persistence["PostgreSQL"]
+    DB_DS["datasets"]
+    DB_DASH["dashboards"]
+    DB_COMP["dashboard_components"]
+    DB_SEM["semantic_definitions"]
+    DB_LOG["query_logs"]
+  end
+
+  subgraph Support["Support Services"]
+    Session["Session Manager<br/>(In-Memory)"]
+    Semantic["Semantic Layer"]
+    DashMgr["Dashboard Manager<br/>(Version, Clone, Replace)"]
+    LangSmith["LangSmith Tracing"]
+  end
+
+  UI_Upload -->|"POST /api/upload"| R_Upload
+  UI_Chat -->|"POST /api/chat"| R_Chat
+  UI_Dash -->|"GET/POST /api/dashboard"| R_Dash
+
+  R_Upload --> Session
+  R_Upload --> DB_DS
+  R_Upload --> Agent
+  R_Upload --> DashMgr
+  R_Upload --> DB_DASH
+  R_Upload --> DB_COMP
+
+  R_Chat --> Session
+  R_Chat --> Intent
+  Intent -->|"Type A: direct"| Direct
+  Intent -->|"Type B: analysis/replace/create"| Agent
+  Direct -->|"Pandas result"| R_Chat
+
+  Agent --> Sandbox
+  SB_Upload --> SB_Exec --> SB_Read
+  Agent -->|"chart_schemas"| DashMgr
+  DashMgr --> DB_DASH
+  DashMgr --> DB_COMP
+
+  Semantic --> DB_SEM
+  Agent -->|"prompt rules"| Semantic
+
+  R_Dash --> DB_DASH
+  R_Dash --> DB_COMP
+
+  R_Chat --> LangSmith
+  Agent --> LangSmith
+
+  UI_Dash --> UI_Chart
 ```
 
 ---
@@ -109,242 +100,335 @@ This document describes the system architecture, data flow, and component intera
 User selects CSV file
         │
         ▼
-┌─────────────────────────────┐
-│ Frontend: FileUpload.tsx    │ - Validate file size ≤10MB
-│                             │ - Validate file type = .csv
-│                             │ - Show progress indicator
-└────────────┬────────────────┘
+┌──────────────────────────────┐
+│ Frontend: FileUpload.tsx     │ - Validate file type = .csv
+│                              │ - Trigger upload
+└────────────┬─────────────────┘
              │
-             ▼ POST /upload {file}
-        ┌──────────────────────┐
-        │ Backend: upload.py   │
-        │                      │
-        │ 1. Write to /tmp/    │
-        │ 2. Read as DataFrame │
-        │ 3. Extract metadata  │
-        │ 4. Create session    │
-        └────────┬─────────────┘
-                 │
-                 ▼
-        ┌──────────────────────┐
-        │ SessionManager       │
-        │ {                    │
-        │   "session_id": xxx, │
-        │   "csv_path": yyy,   │
-        │   "columns": [...],  │
-        │   "dtypes": {...},   │
-        │   "chat_history": [] │
-        │ }                    │
-        └────────┬─────────────┘
-                 │
-                 ▼
-        Return session_id + metadata
-        ┌──────────────────────┐
-        │ Frontend: Store in   │
-        │ React state/cookies  │
-        └──────────────────────┘
+             ▼ POST /api/upload {file: FormData}
+        ┌────────────────────────────────────┐
+        │ Backend: routes/upload.py          │
+        │                                    │
+        │ 1. Create session (in-memory)      │
+        │ 2. Validate file size ≤ 10 MB      │
+        │ 3. Parse CSV with Pandas           │
+        │ 4. Extract metadata & preview      │
+        │ 5. Save raw bytes → DB (datasets)  │
+        └────────────┬───────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────────────┐
+        │ Auto-Insights Generation           │
+        │                                    │
+        │ 1. Fetch chart rules from          │
+        │    semantic_definitions table       │
+        │ 2. Invoke DeepAgents agent in      │
+        │    Daytona sandbox                 │
+        │ 3. Agent generates 3-4 overview    │
+        │    charts as JSON schemas          │
+        │ 4. Agent provides text insights    │
+        └────────────┬───────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────────────┐
+        │ Dashboard Persistence              │
+        │                                    │
+        │ 1. Create Dashboard record (v1)    │
+        │ 2. Create DashboardComponent for   │
+        │    each chart schema               │
+        │ 3. Create insight component for    │
+        │    text summary                    │
+        │ 4. Link dashboard_id to session    │
+        └────────────┬───────────────────────┘
+                     │
+                     ▼
+        Return: {session_id, dashboard_id,
+                 metadata, chart_schemas, insights}
+        ┌────────────────────────────────────┐
+        │ Frontend: Store IDs in localStorage│
+        │ Render dashboard via Dashboard.tsx │
+        └────────────────────────────────────┘
 ```
 
 ### 2. Chat Query Flow
 
 ```
-User sends: "Show department salary chart"
+User sends: "Replace the pie chart with a bar chart"
         │
-        ▼ POST /chat {session_id, message}
-    ┌───────────────────────────┐
-    │ Backend: chat.py          │
-    │ 1. Load session           │
-    │ 2. Add to chat_history    │
-    └────────┬──────────────────┘
+        ▼
+┌────────────────────────────────────┐
+│ Frontend: api-client.ts            │
+│                                    │
+│ 1. Client-side intent parsing      │
+│    → {intent: "replace",           │
+│       params: {source: "pie",      │
+│                target: "bar"}}     │
+│ 2. POST /api/chat with             │
+│    parsed_command attached         │
+└────────────┬───────────────────────┘
              │
-             ▼
-    ┌───────────────────────────┐
-    │ LangGraph Pipeline        │
-    │ (State Machine)           │
-    └────────┬──────────────────┘
-             │
-      ┌──────▼──────┐
-      │ Classify    │
-      │ Intent      │
-      └──────┬──────┘
-             │
-          ┌──┴──┐
-          │     │
-       TYPE A  TYPE B
-    (Direct)  (Analysis)
-          │     │
-          │     ▼
-          │  ┌─────────────────────┐
-          │  │ Agent Planner       │
-          │  │ Prompt:             │
-          │  │ "Given dataset with │
-          │  │  columns [x,y,z],   │
-          │  │  write Python code  │
-          │  │  to: [user request]"│
-          │  └──────┬──────────────┘
-          │         │
-          │         ▼
-          │  ┌─────────────────────┐
-          │  │ Code Generation     │
-          │  │ (LLM Response)      │
-          │  │                     │
-          │  │ import pandas as pd │
-          │  │ df = pd.read_csv... │
-          │  │ result = df.groupby()│
-          │  │ print(result.to_json)│
-          │  └──────┬──────────────┘
-          │         │
-          │         ▼
-          │  ┌─────────────────────┐
-          │  │ Daytona Sandbox     │
-          │  │ (agent_planner)     │
-          │  │ execute generated   │
-          │  │ Python analysis     │
-          │  │ code in an isolated │
-          │  │ sandbox environment │
-          │  └──────┬──────────────┘
-          │         │
-          ▼         ▼
-    ┌──────────────────────────┐
-    │ Response Formatter       │
-    │ - Parse computed data    │
-    │ - Determine chart intent │
-    │ - Build JSON Chart Schema│
-    └──────┬───────────────────┘
-           │
-           ▼
-    Return to Frontend:
-    {
-      "role": "assistant",
-      "content": "Department salaries:\nIT: $95K",
-      "chart_schema": {"type": "bar", "data": [...]}
-    }
-           │
-           ▼
-    Frontend renders message
-    + generic chart engine renders Schema
+             ▼ POST /api/chat {session_id, message, parsed_command}
+        ┌────────────────────────────────────┐
+        │ Backend: routes/chat.py            │
+        │ (LangSmith-traced)                 │
+        │                                    │
+        │ → Delegates to pipeline.py         │
+        └────────────┬───────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────────────┐
+        │ pipeline.py: process_chat_request  │
+        │                                    │
+        │ 1. Load session                    │
+        │ 2. Fetch raw CSV bytes from DB     │
+        │ 3. Use parsed_command or run       │
+        │    LangGraph intent classifier     │
+        └────────────┬───────────────────────┘
+                     │
+              ┌──────┴──────┐
+              │             │
+           Type A        Type B/Replace
+         (Direct)       (Analysis)
+              │             │
+       ┌──────▼──────┐     │
+       │ _direct_    │     │
+       │ response()  │     │
+       │ Pandas only │     │
+       └──────┬──────┘     │
+              │             │
+              │      ┌──────▼──────────────────┐
+              │      │ agent_planner.py         │
+              │      │                          │
+              │      │ 1. Create Daytona sandbox│
+              │      │ 2. Upload CSV bytes      │
+              │      │ 3. Build system prompt   │
+              │      │    with chart rules,     │
+              │      │    dataset metadata,     │
+              │      │    current widgets list  │
+              │      │ 4. Create DeepAgent      │
+              │      │ 5. Agent generates &     │
+              │      │    executes Python code  │
+              │      │ 6. Agent writes results  │
+              │      │    to chart_schemas.json │
+              │      │ 7. Download & parse JSON │
+              │      │ 8. Clean NaN values      │
+              │      │ 9. Delete sandbox        │
+              │      └──────┬──────────────────┘
+              │             │
+              │      ┌──────▼──────────────────┐
+              │      │ Dashboard Versioning     │
+              │      │                          │
+              │      │ 1. Clone current dash    │
+              │      │    → new version (v+1)   │
+              │      │ 2. Apply changes:        │
+              │      │    - replace_id match    │
+              │      │    - title keyword match │
+              │      │    - or append new widget│
+              │      │ 3. Update session with   │
+              │      │    new dashboard_id      │
+              │      └──────┬──────────────────┘
+              │             │
+              ▼             ▼
+        ┌────────────────────────────────────┐
+        │ ChatResponse to Frontend           │
+        │ {content, chart_schema,            │
+        │  dashboard_id, execution_time_ms}  │
+        └────────────────────────────────────┘
+              │
+              ▼
+        Frontend refreshes dashboard widgets
+        from /api/dashboard/{session_id}
 ```
 
 ---
 
-## Component Responsibilities
+## LangGraph Intent Classification
 
-### Frontend (Next.js)
+### StateGraph Definition
 
-| Component | Responsibility |
-|-----------|-----------------|
-| `FileUpload.tsx` | File selection, size validation, drag-drop UX |
-| `ChatWindow.tsx` | Message list, input box, loading states |
-| `Message.tsx` | Individual message rendering |
-| `ChartDisplay.tsx` | Generic visualization engine with predefined registry (bar, line, pie, etc.) |
-| `ErrorBoundary.tsx` | Global error display |
-| `useChat.ts` | Chat state, message history, API calls |
-| `api-client.ts` | HTTP client for /upload, /chat endpoints |
-| `socket-client.ts` | WebSocket for real-time updates (optional) |
+The intent classifier is a compiled LangGraph `StateGraph` with two nodes:
 
-### Backend (FastAPI)
+```
+START → classify → validate → END
+```
 
-| Component | Responsibility |
-|-----------|-----------------|
-| `main.py` | App initialization, CORS, middleware |
-| `config.py` | Environment loading, constants, validation |
-| `upload.py` | POST /upload handler |
-| `chat.py` | POST /chat handler, LangGraph invocation |
-| `session_manager.py` | Session CRUD (in-memory dict) |
-| `file_manager.py` | CSV storage, cleanup, metadata extraction |
+1. **classify**: Sends the user message to Azure OpenAI with a structured prompt requesting JSON output (`{intent, params}`).
+2. **validate**: Normalizes the LLM response — validates intent enum values, normalizes chart type synonyms (e.g., "column" → "bar"), and wraps into a `ParsedCommand` object.
 
-### Workflows (LangGraph)
-
-| Component | Responsibility |
-|-----------|-----------------|
-| `langgraph_pipeline.py` | StateGraph definition, node orchestration |
-| `intent_classifier.py` | Classify query as Type A (direct) or Type B (analysis) |
-| `agent_planner.py` | LangChain agent with code generation |
-| `response_formatter.py` | Convert computed outputs into standardized chart schema |
-
-### Sandbox (Secure Execution)
-
-| Component | Responsibility |
-|-----------|-----------------|
-| `backend/workflows/agent_planner.py` | Create a Daytona sandbox, upload the dataset, execute generated Python analysis code, and retrieve computed JSON outputs |
-
----
-
-## State Management in LangGraph
-
-### State Schema
+### Intent Types
 
 ```python
-class PipelineState(TypedDict):
-    # Input
-    session_id: str
-    user_input: str
-    
-    # Session Data
-    dataset_path: str
-    columns: list[str]
-    chat_history: list[dict]
-    
-    # Processing
-    intent_type: Literal["A", "B"]  # Direct or Analysis
-    generated_code: str
-    sandbox_output: dict  # {stdout, stderr, computed_data}
-    
-    # Output
-    response_text: str
-    chart_schema: Optional[dict]
-    error_message: Optional[str]
+class IntentType(str, Enum):
+    DIRECT = "direct"      # Simple factual queries
+    ANALYSIS = "analysis"  # Create new visualizations
+    REPLACE = "replace"    # Replace existing chart with different type
+    CREATE = "create"      # Add new chart
+    MODIFY = "modify"      # Modify existing chart properties
 ```
 
-### State Transitions
+### Fallback Mechanism
 
-```
-START
-  ↓
-load_session (fetch session data)
-  ↓
-classify_intent (determine Type A or B)
-  ├─→ (Type A) direct_response (LLM answers from context)
-  │     ↓
-  │  format_response
-  │     ↓
-  │  RETURN
-  │
-  └─→ (Type B) generate_code (Agent → Azure OpenAI)
-        ↓
-      agent_planner (Create Daytona sandbox, execute analysis code)
-        ↓
-      format_response (Extract output, determine chart schema)
-        ↓
-      RETURN
-```
+If the LLM call fails, the classifier falls back to keyword matching:
+- **Replace keywords**: `replace`, `swap`, `change`, `switch`, `instead`
+- **Analysis keywords**: `plot`, `chart`, `visual`, `graph`, `show`, `create`, `add`
+- **Direct keywords**: `how many`, `missing`, `duplicate`, `summary`, `count`
 
 ---
 
-## Data Models (Pydantic)
+## DeepAgents + Daytona Sandbox Execution
 
-### Session
+### Execution Flow
+
+```
+generate_analysis_code()
+        │
+        ├── 1. Daytona() → create sandbox
+        ├── 2. sandbox.fs.upload_file(raw_csv_bytes, "/home/daytona/data.csv")
+        ├── 3. Build system prompt with:
+        │      - Dataset metadata (columns, dtypes, preview rows)
+        │      - Chart template rules from semantic_definitions
+        │      - Current dashboard widgets (for replace ID matching)
+        │      - Strict instructions: no matplotlib, output JSON only
+        ├── 4. create_deep_agent(model=AzureChatOpenAI, backend=DaytonaSandbox)
+        ├── 5. agent.invoke() → generates & executes Python code
+        ├── 6. sandbox.fs.download_file("/home/daytona/chart_schemas.json")
+        ├── 7. Parse JSON, clean NaN values, strip markdown artifacts
+        └── 8. sandbox.delete() (always, via finally block)
+```
+
+### Agent Constraints
+
+The system prompt enforces strict rules:
+- **No matplotlib/PNG** — Agent must output JSON chart schemas only
+- **Column validation** — Agent must verify column names before generating code
+- **Standardized output path** — All schemas written to `/home/daytona/chart_schemas.json`
+- **Install dependencies** — First code step always installs pandas via pip
+- **No code in response** — Final text response is stripped of all code blocks and file paths
+- **Replace ID matching** — Agent includes `replace_id` when swapping existing charts
+
+### Harness Profile
+
+DeepAgents is configured with `HarnessProfileConfig` that excludes `AnthropicPromptCachingMiddleware` for both `openai` and `azure` profiles, since only Azure OpenAI is used.
+
+---
+
+## Dashboard Versioning System
+
+### Version Lifecycle
+
+```
+Upload CSV → Dashboard v1 (auto-generated charts)
+     │
+     ▼
+Chat: "Show salary trends" → Clone v1 → Dashboard v2 (add chart)
+     │
+     ▼
+Chat: "Replace pie with bar" → Clone v2 → Dashboard v3 (replace chart)
+     │
+     ▼
+Rollback to v1 → Session now points to v1's dashboard_id
+```
+
+### Clone Strategy (`dashboard_manager.py`)
+
+1. **create_dashboard_version**: Copies the `Dashboard` record with `version + 1`, then clones all `DashboardComponent` records to the new dashboard.
+2. **apply_dashboard_changes**: Processes chart schemas against the cloned components:
+   - If `replace_id` matches a component → update its `chart_schema` in place
+   - If title keywords match an existing component → update it (fuzzy match: words > 3 chars)
+   - Otherwise → append as a new component at the bottom of the grid
+
+### Rollback
+
+The rollback endpoint simply updates the session's `dashboard_id` to point to a previous version's UUID. The old version's data is untouched in PostgreSQL.
+
+---
+
+## Database Schema (PostgreSQL)
+
+### Entity-Relationship Diagram
+
+```mermaid
+erDiagram
+    datasets {
+        UUID id PK
+        VARCHAR filename
+        JSONB schema_json
+        INTEGER version
+        BYTEA raw_data
+        TIMESTAMP uploaded_at
+    }
+
+    dashboards {
+        UUID id PK
+        VARCHAR name
+        JSONB layout_json
+        INTEGER version
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    dashboard_components {
+        UUID id PK
+        UUID dashboard_id FK
+        JSONB query_plan
+        JSONB position
+        VARCHAR component_type
+        JSONB chart_schema
+    }
+
+    semantic_definitions {
+        UUID id PK
+        VARCHAR definition_type
+        VARCHAR name UK
+        JSONB definition_json
+        INTEGER version
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    query_logs {
+        UUID id PK
+        UUID dataset_id FK
+        JSONB plan
+        FLOAT execution_time_ms
+        VARCHAR status
+        VARCHAR error_message
+        TIMESTAMP created_at
+    }
+
+    dashboards ||--o{ dashboard_components : "has"
+    datasets ||--o{ query_logs : "tracks"
+```
+
+### Semantic Definitions (Chart Templates)
+
+Seeded on startup by `init_db()` if the table is empty:
+
+| Name | Description |
+|------|-------------|
+| `bar` | Category comparisons (xAxis = category, yAxis = value) |
+| `pie` | Proportional distributions (name + value) |
+| `line` | Trends over time (x = time, y = metric) |
+| `area` | Cumulative trends |
+| `scatter` | Correlations (x, y numeric) |
+| `radar` | Multi-dimensional comparisons (dimension + value) |
+
+Each template includes a full JSON schema with `type`, `description`, `required_fields`, and `example`.
+
+---
+
+## Pydantic Data Models
+
+### Session Model
 
 ```python
 class SessionModel(BaseModel):
     session_id: str
     created_at: datetime
-    csv_path: str
-    dataset_metadata: DatasetMetadata
+    last_accessed_at: datetime
+    dataset: Optional[DatasetMetadata]
     chat_history: list[ChatMessage]
-    
-    class Config:
-        extra = "forbid"
-```
-
-### ChatMessage
-
-```python
-class ChatMessage(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
-    timestamp: datetime
-    analysis_result: Optional[dict]  # For Type B responses
+    metadata: dict  # Stores dashboard_id, etc.
 ```
 
 ### DatasetMetadata
@@ -352,11 +436,99 @@ class ChatMessage(BaseModel):
 ```python
 class DatasetMetadata(BaseModel):
     filename: str
+    dataset_id: str           # UUID from PostgreSQL
+    file_path: str            # Empty (no disk storage)
     rows: int
     columns: list[str]
     dtypes: dict[str, str]
     missing_values: dict[str, int]
+    preview_rows: list[dict]  # First 5 rows
+    size_bytes: int
+    uploaded_at: datetime
 ```
+
+### Chat Models
+
+```python
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+    parsed_command: Optional[dict]  # Pre-parsed intent from frontend
+
+class ChatResponse(BaseModel):
+    role: str = "assistant"
+    content: str
+    chart_schema: Optional[dict]
+    execution_time_ms: Optional[int]
+    dashboard_id: Optional[str]     # New version UUID after changes
+    version: Optional[int]
+    error_message: Optional[str]
+```
+
+### Upload Response
+
+```python
+class UploadResponse(BaseModel):
+    session_id: str
+    dashboard_id: Optional[str]       # Persisted dashboard UUID
+    message: str
+    metadata: DatasetMetadata
+    default_chart_schemas: list[dict]  # Auto-generated charts
+    auto_insights: Optional[str]      # Text summary
+```
+
+---
+
+## Frontend Architecture
+
+### Component Hierarchy
+
+```
+index.tsx (Page)
+├── FileUpload.tsx          ─ CSV upload trigger
+├── ChatWindow.tsx          ─ Conversational interface
+│   └── ChartDisplay.tsx    ─ Inline chart preview
+└── Dashboard.tsx           ─ Main analytics grid
+    └── ChartDisplay.tsx    ─ Widget-level chart rendering
+```
+
+### Chart Rendering Engine (`ChartDisplay.tsx`)
+
+Uses a **component registry** pattern — no switch/case logic:
+
+```typescript
+const CHART_REGISTRY = {
+  bar:     { wrapper: BarChart,     element: Bar,     hasAxes: true },
+  line:    { wrapper: LineChart,    element: Line,    hasAxes: true },
+  area:    { wrapper: AreaChart,    element: Area,    hasAxes: true },
+  scatter: { wrapper: ScatterChart, element: Scatter, hasAxes: true },
+  pie:     { wrapper: PieChart,     element: Pie,     hasAxes: false, isPolar: false },
+  radar:   { wrapper: RadarChart,   element: Radar,   hasAxes: false, isPolar: true },
+};
+```
+
+The renderer:
+1. Looks up `schema.type` in the registry
+2. Falls back to `scatter` for unknown types
+3. Coerces string numbers to actual numbers
+4. Auto-detects x/y keys if schema keys are missing from the data
+5. Renders with appropriate coordinate system (Cartesian, Polar, or Pie)
+
+### Dashboard Drag-and-Drop (`Dashboard.tsx`)
+
+Implements a **native pointer-event system** (no external grid library):
+- **Move**: Pointer-down on header handle → track delta → update grid position
+- **Resize**: Pointer-down on corner handle → adjust width/height
+- **Grid snapping**: 12-column grid, 100px row height; positions rounded on pointer-up
+- **Persistence**: "Save Layout" sends updated positions to `POST /api/dashboard/{session_id}/layout`
+
+### Client-Side Intent Parser (`api-client.ts`)
+
+A regex-based parser runs before sending chat messages, providing a `parsed_command` hint to the backend:
+- Replace patterns: `replace X chart with Y chart`
+- Create patterns: `create a X chart`, `show me a X chart`
+- Analysis patterns: presence of `chart`, `plot`, `graph`, `visualize`
+- Direct patterns: `how many`, `missing`, `duplicate`, `summary`
 
 ---
 
@@ -364,136 +536,144 @@ class DatasetMetadata(BaseModel):
 
 ### Daytona Sandbox Isolation
 
-The DeepAgents workflow executes generated Python analysis code inside a Daytona sandbox managed by `backend/workflows/agent_planner.py`.
+- Each analysis request creates an **ephemeral sandbox** — destroyed after use
+- CSV data is uploaded as raw bytes; no database connections from the sandbox
+- The sandbox **cannot access** the Docker network, PostgreSQL, or host filesystem
+- Timeout limits enforced by the Daytona runtime
+- Generated code outputs data to stdout and `/home/daytona/chart_schemas.json`
 
-- The dataset is uploaded into the sandbox filesystem prior to execution.
-- The sandbox provides runtime isolation from the FastAPI host process.
-- Timeouts and execution limits are enforced by the Daytona sandbox runtime.
-- Computed data is generated inside the sandbox and retrieved via stdout/files.
-- Unsafe host-level access is prevented by sandbox isolation.
+### Code Safety
 
-### Runtime Protections
-
-- The agent prompt is scoped to data analysis and aggregations.
-- Generated code writes data outputs to `/tmp` or stdout inside the sandbox.
-- The system captures sandbox execution results and returns text/chart schema to the frontend.
-
----
-
-## Performance Targets
-
-| Metric | Target | Approach |
-|--------|--------|----------|
-| Standard response (Type A) | <3 sec | Cache context in Redis (post-MVP) |
-| Sandbox response (Type B) | <8 sec | Optimize LLM prompt, efficient pandas queries |
-| File upload | < 1 sec | Stream to disk, async metadata extraction |
-| Chart rendering | < 5 sec | Dynamic frontend rendering based on JSON schema |
-| Concurrent queries | 5-10 | Process queue with asyncio |
+- Agent prompt is scoped to data analysis only
+- `config.py` defines `ALLOWED_IMPORTS` (pandas, numpy, json, etc.) and `FORBIDDEN_IMPORTS` (os, sys, subprocess, etc.)
+- Response sanitization strips code blocks, file paths, and technical artifacts
 
 ---
 
 ## Error Handling Strategy
 
-### Error Types & Recovery
+### Exception Hierarchy
 
 ```python
-# 1. Upload Errors
-class UploadError(Exception):
-    """File validation failed"""
-    - InvalidFileFormat
-    - FileTooLarge
-    - CorruptedData
-
-# 2. Sandbox Errors
-class SandboxError(Exception):
-    """Code execution failed"""
-    - TimeoutError (20s exceeded)
-    - RuntimeError (pandas/matplotlib issue)
-    - SecurityError (forbidden import)
-
-# 3. LLM Errors
-class LLMError(Exception):
-    """Azure OpenAI API failed"""
-    - RateLimitError
-    - APIError
-    - InvalidAPIKey
-
-# 4. Session Errors
-class SessionError(Exception):
-    """Session management failed"""
-    - SessionNotFound
-    - SessionExpired
+InsightsException (base)
+├── InvalidFileFormatError    # Wrong file type
+├── FileTooLargeError         # Exceeds MAX_UPLOAD_SIZE
+├── CorruptedDataError        # CSV parse failure
+├── SandboxError              # Daytona execution failure
+├── SessionNotFoundError      # Invalid session_id
+└── SessionExpiredError       # TTL exceeded
 ```
+
+All custom exceptions are caught by the global `InsightsException` handler in `main.py` and returned as structured JSON with appropriate HTTP status codes.
 
 ### User-Facing Error Messages
 
-```
-Sandbox Timeout:
-  "The analysis took too long. Please try a simpler query."
+| Error Type | Message |
+|-----------|---------|
+| Sandbox timeout | "Statistical retrieval failed. Please refine your query." |
+| Invalid CSV | "Data ingestion failed. Ensure the CSV format is valid." |
+| No dataset | "No dataset has been uploaded for this session." |
+| Session expired | "Session has expired. Please re-upload your dataset." |
 
-Forbidden Import:
-  "The generated code contains unsafe operations."
+---
 
-LLM Rate Limit:
-  "Too many requests. Please wait a moment and try again."
+## Observability (LangSmith)
 
-Invalid CSV:
-  "CSV file is invalid or corrupted. Please check format."
+### Traced Components
+
+| Component | Trace Tags |
+|-----------|------------|
+| `chat_endpoint` | `chat`, `api` |
+| `process_chat_request` | `chat`, `pipeline` |
+| `classify_intent` | `intent`, `classification`, `langgraph` |
+| `parse_command` | `intent`, `parsing`, `langgraph` |
+| `generate_analysis_code` | `agent`, `code_generation`, `deepagents` |
+
+### Configuration
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
+LANGSMITH_API_KEY=<your-key>
+LANGSMITH_PROJECT=Insights
 ```
 
 ---
 
-## Scalability Path (Post-MVP)
+## Deployment Architecture
 
-### Immediate Improvements
+### Docker Compose (3-service stack)
 
 ```
-├─ Redis (Session Caching)
-│  ├ Persistent session storage (TTL: 24h)
-│  ├ Chat history caching
-│  └ Request throttling
-│
-├─ MongoDB (Audit Logging)
-│  ├ All queries logged
-│  ├ Execution times tracked
-│  └ Error analytics
-│
-├─ Request Queuing (Celery)
-│  ├ Async sandbox execution
-│  ├ Rate limiting
-│  └ Graceful degradation
-│
-└─ Multi-Instance Deployment
-   ├ Load balancer (nginx)
-   ├ Shared session storage
-   └ Horizontal scaling
+┌──────────────────────────────┐
+│  insights-frontend (:3000)   │ Next.js dev server
+│  depends_on: backend         │
+└──────────────┬───────────────┘
+               │
+┌──────────────▼───────────────┐
+│  insights-backend (:8000)    │ FastAPI + uvicorn --reload
+│  depends_on: postgres        │
+│  env_file: .env.local        │
+└──────────────┬───────────────┘
+               │
+┌──────────────▼───────────────┐
+│  insights-postgres (:5433)   │ PostgreSQL 15
+│  Volume: postgres-data       │ Health check: pg_isready
+└──────────────────────────────┘
+
+Network: insights-network (bridge)
 ```
+
+### Port Mapping
+
+| Service | Internal | External |
+|---------|----------|----------|
+| Backend | 8000 | 8000 |
+| Frontend | 3000 | 3000 |
+| PostgreSQL | 5432 | 5433 |
 
 ---
 
-## Deployment Architecture (MVP = Local)
+## Performance Characteristics
+
+| Metric | Typical | Notes |
+|--------|---------|-------|
+| Direct queries (Type A) | < 1 sec | Local Pandas, no sandbox |
+| Analysis queries (Type B) | 10–30 sec | Daytona sandbox creation + code execution |
+| Upload + auto-insights | 15–45 sec | Includes sandbox + 3-4 chart generation |
+| Chart rendering | < 500 ms | Client-side Recharts |
+| Dashboard reload | < 1 sec | Direct PostgreSQL fetch by UUID |
+| Version rollback | < 500 ms | Session pointer update + widget fetch |
+
+---
+
+## Scalability Path (Future)
 
 ```
-Development Setup:
-
-┌─ Terminal 1: Backend  ──┐
-│ python -m uvicorn      │
-│ backend.main:app       │
-│ --reload               │
-│ :8000                  │
-└────────────────────────┘
-
-┌─ Terminal 2: Frontend ──┐
-│ npm run dev            │
-│ next.js dev server     │
-│ :3000                  │
-└────────────────────────┘
-
-┌─ Shared Resources    ──┐
-│ /tmp/uploads/         │
-│ (CSV files, charts)    │
-│ In-memory sessions     │
-└────────────────────────┘
+├─ Redis (Session Store)
+│  ├─ Replace in-memory sessions with persistent Redis
+│  ├─ Enable multi-instance deployments
+│  └─ Request rate limiting
+│
+├─ Celery/Background Jobs
+│  ├─ Async sandbox execution
+│  ├─ Upload processing queue
+│  └─ Graceful degradation under load
+│
+├─ Multi-User Auth
+│  ├─ JWT-based authentication
+│  ├─ Per-user dashboard ownership
+│  └─ Role-based access control
+│
+├─ Advanced Analytics
+│  ├─ Predictive models
+│  ├─ Time-series forecasting
+│  └─ PDF/PowerPoint export
+│
+└─ Horizontal Scaling
+   ├─ Load balancer (nginx)
+   ├─ Shared PostgreSQL
+   └─ Stateless backend instances
 ```
 
 ---
@@ -501,13 +681,16 @@ Development Setup:
 ## References
 
 - [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
+- [LangChain Documentation](https://python.langchain.com/docs/)
+- [DeepAgents](https://github.com/deepagents/deepagents)
+- [Daytona SDK](https://www.daytona.io/docs)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [SQLAlchemy Async](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
+- [Recharts Documentation](https://recharts.org/)
 - [Pydantic Documentation](https://docs.pydantic.dev/)
-- [Pandas Documentation](https://pandas.pydata.org/)
-- [Azure OpenAI API](https://learn.microsoft.com/en-us/azure/ai-services/openai/)
 
 ---
 
-**Last Updated**: April 2026
-**Status**: MVP Architecture
-**Version**: 1.0
+**Last Updated**: May 2026
+**Status**: Production Architecture
+**Version**: 2.0

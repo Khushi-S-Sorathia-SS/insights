@@ -20,8 +20,14 @@ settings = get_settings()
 
 # DeepAgents is used only with Azure OpenAI in this app.
 # Exclude Anthropic-specific prompt-caching middleware to avoid unrelated provider labels in traces.
+# Register profiles for both 'openai' (generic) and 'azure' (specific for AzureChatOpenAI)
+# to ensure Anthropic-specific middleware is excluded and doesn't interfere with the response.
 register_harness_profile(
     "openai",
+    HarnessProfileConfig(excluded_middleware={"AnthropicPromptCachingMiddleware"}),
+)
+register_harness_profile(
+    "azure",
     HarnessProfileConfig(excluded_middleware={"AnthropicPromptCachingMiddleware"}),
 )
 
@@ -42,7 +48,7 @@ last_execution_charts = []
 
 
 @trace_function(name="generate_analysis_code", tags=["agent", "code_generation", "deepagents"])
-def generate_analysis_code(user_query: str, dataset: DatasetMetadata, raw_data: bytes, chart_rules: str = "") -> dict:
+def generate_analysis_code(user_query: str, dataset: DatasetMetadata, raw_data: bytes, chart_rules: str = "", current_widgets: list = None) -> dict:
     """Generate Python code using Deep Agents with Azure OpenAI and Daytona sandbox. Returns dict with output and chart schemas."""
     global current_dataset_path, last_execution_charts
     current_dataset_path = None  # No local file path; data comes from PostgreSQL
@@ -61,7 +67,8 @@ def generate_analysis_code(user_query: str, dataset: DatasetMetadata, raw_data: 
         # the local Docker network (postgres:5432 / host.docker.internal are unreachable).
         # Data is already saved in PostgreSQL by file_manager. Here we just give
         # the agent a local copy to work with.
-        sandbox_path = f"/home/daytona/{dataset.filename}"
+        # Standardize path to 'data.csv' to avoid issues with spaces or special chars in filename
+        sandbox_path = "/home/daytona/data.csv"
         sandbox.fs.upload_file(raw_data, sandbox_path)
 
         # Create the system prompt
@@ -112,14 +119,28 @@ CRITICAL REQUIREMENTS:
 - IMPORTANT: The `/home/daytona/chart_schemas.json` file must contain ONLY raw, valid JSON. Do not wrap it in markdown backticks.
 - IMPORTANT: DO NOT mention the file paths or where the charts are saved in your final textual response to the user.
 - IMPORTANT: DO NOT output any of your Python code, Pandas DataFrames, or raw data in your final response. Your final response MUST contain ONLY natural language insights.
-- If your first code attempt raises an error, debug it and try again with corrected code. Make sure charts are written to `/home/daytona/chart_schemas.json` before you finish.
+
+REPLACEMENT AND AMBIGUITY RULES:
+- If the user asks to "replace", "change", "swap", or "use [X] instead of [Y]", you MUST identify the ID of the chart to be replaced from the following list:
+  {current_widgets if current_widgets else "[]"}
+- Look at the "title" and "type" in the list above to find the match.
+- If you find a match, your output in `/home/daytona/chart_schemas.json` MUST include a `"replace_id": "THE_MATCHING_WIDGET_ID"` field inside the chart object.
+- If there is ambiguity (multiple charts with same type/title), STOP and ask the user for clarification.
+- If you are adding a new chart that doesn't replace anything, do not include "replace_id".
+- IMPORTANT: You MUST output valid JSON. No markdown.
+
+FINAL RESPONSE RULES:
+- Your final answer MUST be ONLY natural language insights.
+- NEVER include python code, markdown code blocks, file paths (like /home/daytona/...), or technical debugging info in your final response.
+- If you generated charts, summarize what they show in 1-2 sentences.
 
 CHART SCHEMA RULES:
 {chart_rules if chart_rules else "No specific rules provided. Use generic representations."}
 
 - Be precise and efficient in your code generation
 
-You have access to filesystem tools (read_file, write_file, edit_file, ls, glob, grep) and can execute shell commands in the sandbox."""
+You have access to filesystem tools (read_file, write_file, edit_file, ls, glob, grep) and can execute shell commands in the sandbox.
+IMPORTANT: To execute Python code, you must use a tool. Do NOT simply output the code in your response. Write your Python code to a file (e.g., /home/daytona/analyze.py) and then execute it using the shell tool with `python3 /home/daytona/analyze.py`."""
 
         # Create the Deep Agent
         agent = create_deep_agent(
@@ -143,27 +164,36 @@ Please analyze the dataset and answer the query. Generate and execute Python cod
             ]
         })
 
-        # Extract the final answer
+        # Extract the final answer and strip any code blocks
         output_text = ""
         if result and "messages" in result:
-            # Get the last message from the agent
             last_message = result["messages"][-1]
-            if hasattr(last_message, 'content'):
-                output_text = last_message.content
-            else:
-                output_text = str(last_message)
+            content = last_message.content if hasattr(last_message, 'content') else str(last_message)
+            
+            # Use regex to strip ANY markdown code blocks (python, json, etc)
+            import re
+            output_text = re.sub(r'```.*?```', '', content, flags=re.DOTALL).strip()
+            # Also strip any stray single backticks or common path patterns
+            output_text = re.sub(r'/home/daytona/\S+', '', output_text)
         else:
-            output_text = "Analysis completed. Check the results above."
+            output_text = "Analysis completed."
 
         # Retrieve chart schemas from the ephemeral Daytona sandbox
         import json
         import re
+        import math
         try:
-            schema_result = backend.execute("cat /home/daytona/chart_schemas.json")
-            output_str = schema_result.output.strip()
+            # Use the Daytona sandbox filesystem API directly to read the generated schemas.
+            # The Daytona sandbox is a remote environment, and this is the most reliable way to pull files.
+            try:
+                output_bytes = sandbox.fs.download_file("/home/daytona/chart_schemas.json")
+                output_str = output_bytes.decode("utf-8").strip()
+            except Exception as e:
+                print(f"Chart schema file not found or unreadable: {e}")
+                output_str = ""
             
-            if output_str and "No such file" not in output_str:
-                # Clean up any potential markdown formatting from the LLM
+            if output_str:
+                # Clean up any potential markdown formatting from the LLM (if it wrote backticks into the file)
                 if "```json" in output_str:
                     match = re.search(r"```json\s*(.*?)\s*```", output_str, re.DOTALL)
                     if match:
@@ -175,10 +205,23 @@ Please analyze the dataset and answer the query. Generate and execute Python cod
                         
                 print(f"DEBUG CHART SCHEMAS: {output_str}")
                 last_execution_charts = json.loads(output_str)
+                
+                # Clean NaN values from chart schemas to make them JSONB-compatible
+                def clean_nan(obj):
+                    if isinstance(obj, dict):
+                        return {k: clean_nan(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [clean_nan(item) for item in obj]
+                    elif isinstance(obj, float) and math.isnan(obj):
+                        return None
+                    else:
+                        return obj
+                
+                last_execution_charts = [clean_nan(chart) for chart in last_execution_charts]
             else:
                 last_execution_charts = []
         except Exception as e:
-            # If chart retrieval fails, continue without schemas
+            # If chart retrieval or parsing fails, continue without schemas
             print(f"Failed to parse charts: {e}")
             last_execution_charts = []
 

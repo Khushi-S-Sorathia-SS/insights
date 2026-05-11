@@ -94,6 +94,7 @@ class ChatRequest(BaseModel):
 
     session_id: str
     message: str
+    parsed_command: Optional[dict] = None
 
     class Config:
         extra = "forbid"
@@ -106,6 +107,8 @@ class ChatResponse(BaseModel):
     content: str
     chart_schema: Optional[dict] = None
     execution_time_ms: Optional[int] = None
+    dashboard_id: Optional[str] = None
+    version: Optional[int] = None
     error_message: Optional[str] = None
 
     class Config:

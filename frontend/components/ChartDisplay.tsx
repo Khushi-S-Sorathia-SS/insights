@@ -1,12 +1,11 @@
 'use client';
-
-import React from 'react';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
   AreaChart, Area, Radar, RadarChart, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis, ZAxis
 } from 'recharts';
+import { useState, useRef, useEffect } from 'react';
 import { ChartSchema } from '../utils/api-client';
 
 interface ChartDisplayProps {
@@ -26,6 +25,51 @@ const CHART_REGISTRY: Record<string, any> = {
 };
 
 export default function ChartDisplay({ schema }: ChartDisplayProps) {
+  const [top, setTop] = useState(0);
+  const [height, setHeight] = useState(300);
+  const dragInfo = useRef<{ type: 'move' | 'resize', startY: number, initialTop: number, initialHeight: number, pointerId: number, target: HTMLElement } | null>(null);
+
+  const startDrag = (e: React.PointerEvent, type: 'move' | 'resize') => {
+    e.preventDefault();
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    dragInfo.current = {
+      type,
+      startY: e.clientY,
+      initialTop: top,
+      initialHeight: height,
+      pointerId: e.pointerId,
+      target
+    };
+  };
+
+  const handlePointerMove = (e: PointerEvent) => {
+    if (!dragInfo.current) return;
+    const deltaY = e.clientY - dragInfo.current.startY;
+    if (dragInfo.current.type === 'move') {
+      setTop(Math.max(0, dragInfo.current.initialTop + deltaY));
+    } else {
+      setHeight(Math.max(150, dragInfo.current.initialHeight + deltaY));
+    }
+  };
+
+  const stopDrag = () => {
+    if (!dragInfo.current) return;
+    dragInfo.current.target.releasePointerCapture(dragInfo.current.pointerId);
+    dragInfo.current = null;
+  };
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => handlePointerMove(event);
+    const onPointerUp = () => stopDrag();
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, []);
+
   if (!schema || !schema.data || schema.data.length === 0) return null;
 
   const chartType = schema.type?.toLowerCase() || 'bar';
@@ -67,8 +111,8 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
     if (config.hasAxes) {
       const isScatter = chartType === 'scatter';
       return (
-        <ResponsiveContainer width="100%" height={300}>
-          <WrapperComponent data={processedData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <WrapperComponent data={processedData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }} style={{ pointerEvents: 'none' }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey={xKey}
@@ -111,8 +155,8 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
     // Render for Polar coordinate charts (Radar)
     if (config.isPolar) {
       return (
-        <ResponsiveContainer width="100%" height={300}>
-          <WrapperComponent data={processedData}>
+        <ResponsiveContainer width="100%" height="100%">
+          <WrapperComponent data={processedData} style={{ pointerEvents: 'none' }}>
             <PolarGrid stroke="rgba(255,255,255,0.1)" />
             <PolarAngleAxis dataKey={xKey} tick={{ fill: '#94a3b8', fontSize: 11 }} />
             <PolarRadiusAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
@@ -135,8 +179,8 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
 
     // Render for Pie/Donut charts
     return (
-      <ResponsiveContainer width="100%" height={300}>
-        <WrapperComponent>
+      <ResponsiveContainer width="100%" height="100%">
+        <WrapperComponent style={{ pointerEvents: 'none' }}>
           <DataComponent
             data={processedData}
             dataKey={yKey}
@@ -165,15 +209,21 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
   };
 
   return (
-    <div className="glass-card p-6 my-6 animate-fade-in border-t-2 border-t-indigo-500/30">
+    <div className="glass-card p-6 animate-fade-in border-t-2 border-t-indigo-500/30 absolute" style={{ top: `${top}px`, width: '100%', height: `${height}px` }}>
+      <div onPointerDown={(e) => startDrag(e, 'move')} className="cursor-move p-2 bg-white/5 rounded-t-lg flex justify-center">
+        <div className="w-6 h-1 bg-slate-400 rounded-full"></div>
+      </div>
       {schema.title && (
         <div className="flex flex-col mb-6">
           <h3 className="text-sm font-black text-slate-100 uppercase tracking-widest">{schema.title}</h3>
           <div className="w-10 h-1 bg-gradient-to-r from-indigo-500 to-transparent mt-2 rounded-full"></div>
         </div>
       )}
-      <div className="w-full">
+      <div className="w-full" style={{ height: `${height - 120}px` }}>
         {renderGenericChart()}
+      </div>
+      <div onPointerDown={(e) => startDrag(e, 'resize')} className="cursor-ns-resize p-2 bg-white/5 rounded-b-lg flex justify-center absolute bottom-0 left-0 right-0">
+        <div className="w-6 h-1 bg-slate-400 rounded-full"></div>
       </div>
     </div>
   );

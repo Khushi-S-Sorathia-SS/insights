@@ -13,12 +13,14 @@ from typing import Optional
 from ..models.session import ChatResponse
 from ..storage.session_manager import session_manager
 from ..workflows.agent_planner import generate_analysis_code
-from ..workflows.intent_classifier import IntentType, classify_intent
+from ..workflows.intent_classifier import IntentType, classify_intent, parse_command, ParsedCommand
 from ..workflows.response_formatter import format_sandbox_response
 from ..utils.error_handler import SandboxError, SessionError
 from ..utils.langsmith_tracer import trace_function, create_run_context
 from ..utils.logger import get_logger
-from ..db.models import Dataset
+from ..db.models import Dataset, DashboardComponent
+from .dashboard_manager import create_dashboard_version, apply_dashboard_changes
+import uuid
 from ..semantic.semantic_layer import get_chart_rules
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -26,8 +28,46 @@ from sqlalchemy import select
 logger = get_logger(__name__)
 
 
+def find_chart_to_replace(widgets: list, source_type: str = None, target_title: str = None) -> str:
+    """Find the chart to replace based on parsed command parameters."""
+    if not widgets:
+        return None
+    
+    # If a specific title is mentioned, try to match it
+    if target_title:
+        target_title_lower = target_title.lower()
+        for widget in widgets:
+            if widget.get("type") == "chart":
+                widget_title = widget.get("title", "").lower()
+                if target_title_lower in widget_title:
+                    return widget["id"]
+    
+    # If a source chart type is specified, find charts of that type
+    if source_type:
+        candidates = []
+        for widget in widgets:
+            if widget.get("type") == "chart":
+                # Check if the widget title contains the source type
+                widget_title = widget.get("title", "").lower()
+                if source_type in widget_title:
+                    candidates.append(widget)
+        
+        # If only one candidate matches, return it
+        if len(candidates) == 1:
+            return candidates[0]["id"]
+        
+        # For pie charts, also check for "distribution" in title
+        if source_type == "pie":
+            pie_candidates = [w for w in widgets if w.get("type") == "chart" and 
+                            "distribution" in w.get("title", "").lower()]
+            if len(pie_candidates) == 1:
+                return pie_candidates[0]["id"]
+    
+    return None
+
+
 @trace_function(name="process_chat_request", tags=["chat", "pipeline"])
-async def process_chat_request(session_id: str, user_input: str, db: AsyncSession) -> ChatResponse:
+async def process_chat_request(session_id: str, user_input: str, db: AsyncSession, parsed_command: dict = None) -> ChatResponse:
     """Process a chat request and return a response with analysis."""
     session = session_manager.get_session(session_id)
     session.add_message("user", user_input)
@@ -47,7 +87,16 @@ async def process_chat_request(session_id: str, user_input: str, db: AsyncSessio
     
     raw_data = dataset_record.raw_data
 
-    intent = classify_intent(user_input)
+    # Use provided parsed command or parse it using LangGraph
+    if parsed_command:
+        # Convert dict to ParsedCommand object
+        intent_str = parsed_command.get("intent", "analysis")
+        params = parsed_command.get("params", {})
+        parsed_command_obj = ParsedCommand(IntentType(intent_str), params)
+    else:
+        parsed_command_obj = parse_command(user_input)
+    
+    intent = parsed_command_obj.intent
 
     if intent == IntentType.DIRECT:
         content = _direct_response(raw_data, user_input)
@@ -58,13 +107,29 @@ async def process_chat_request(session_id: str, user_input: str, db: AsyncSessio
     # Fetch dynamic chart rules from the Semantic Layer
     chart_rules = await get_chart_rules(db)
 
+    # Fetch current dashboard components for context
+    current_widgets = []
+    dashboard_id_str = session.metadata.get("dashboard_id")
+    if dashboard_id_str:
+        dash_id = uuid.UUID(dashboard_id_str)
+        result = await db.execute(select(DashboardComponent).filter(DashboardComponent.dashboard_id == dash_id))
+        components = result.scalars().all()
+        for comp in components:
+            widget = {
+                "id": str(comp.id),
+                "type": comp.component_type,
+                "title": comp.chart_schema.get("title", "Untitled") if comp.chart_schema else "Untitled"
+            }
+            current_widgets.append(widget)
+
     # generate_analysis_code now returns a dict with output and chart_schemas
     result = await asyncio.to_thread(
         generate_analysis_code, 
         user_input, 
         session.dataset, 
         raw_data, 
-        chart_rules
+        chart_rules,
+        current_widgets
     )
     output_text = result.get("output", "")
     chart_schemas = result.get("chart_schemas", [])
@@ -72,7 +137,6 @@ async def process_chat_request(session_id: str, user_input: str, db: AsyncSessio
     logger.info("Generated analysis code for chat input: %s", output_text[:100])
     
     # Format the response with chart schemas
-    from ..models.session import ChatResponse
     formatted_content = output_text
     if chart_schemas:
         formatted_content += f"\n\n[{len(chart_schemas)} charts generated]"
@@ -83,31 +147,46 @@ async def process_chat_request(session_id: str, user_input: str, db: AsyncSessio
 
     # Save to dashboard_components if dashboard_id exists
     dashboard_id_str = session.metadata.get("dashboard_id")
-    if dashboard_id_str:
-        from ..db.models import DashboardComponent
-        import uuid
+    if dashboard_id_str and (chart_schemas or intent == IntentType.REPLACE):
         dash_id = uuid.UUID(dashboard_id_str)
-        
-        # We can just append to the dashboard. Let's find max position Y or just append
-        for i, schema in enumerate(chart_schemas):
-            component = DashboardComponent(
-                dashboard_id=dash_id,
-                position={"x": i % 2, "y": 100 + i, "w": 1, "h": 1}, # simple offset
-                component_type="chart",
-                chart_schema=schema
-            )
-            db.add(component)
-            
-        insight_component = DashboardComponent(
-            dashboard_id=dash_id,
-            position={"x": 0, "y": 100 + len(chart_schemas), "w": 2, "h": 1},
-            component_type="insight",
-            chart_schema={"content": output_text}
-        )
-        db.add(insight_component)
-        await db.commit()
 
-    response = ChatResponse(content=formatted_content, chart_schema=chart_schema, execution_time_ms=0)
+        # Use parsed command parameters for intelligent replacement
+        if chart_schemas and intent == IntentType.REPLACE:
+            params = parsed_command_obj.params
+            
+            for schema in chart_schemas:
+                if not schema.get("replace_id"):
+                    # Use parsed parameters to find the target chart
+                    target_chart_id = find_chart_to_replace(
+                        current_widgets, 
+                        params.get("source_type"), 
+                        params.get("target_title")
+                    )
+                    
+                    if target_chart_id:
+                        schema["replace_id"] = target_chart_id
+                        # Update the schema to use the target chart type
+                        if params.get("target_type"):
+                            schema["type"] = params["target_type"]
+                        break
+
+        # 1. Create a new version (clone)
+        new_dash_id = await create_dashboard_version(db, dash_id)
+        
+        # 2. Apply changes to the new version
+        await apply_dashboard_changes(db, new_dash_id, chart_schemas, output_text)
+        
+        # 3. Update session metadata with the new dashboard ID
+        session.metadata["dashboard_id"] = str(new_dash_id)
+        session_manager.save_session(session)
+
+    response = ChatResponse(
+        content=formatted_content,
+        chart_schema=chart_schema,
+        execution_time_ms=0,
+        dashboard_id=session.metadata.get("dashboard_id"),
+        version=None,
+    )
     session.add_message(
         "assistant",
         response.content,

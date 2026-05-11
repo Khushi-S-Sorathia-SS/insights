@@ -1,68 +1,65 @@
-# Environment Variables
-.env
-.env.local
-.env.*.local
-
-# Python
+# Dependency directories
+node_modules/
+venv/
+env/
+.venv/
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-*.egg-info/
-dist/
-build/
 
-# IDE
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE / Editor settings
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+*.sublime-project
+*.sublime-workspace
+
+# OS files
 .DS_Store
-
-# Node/Frontend
-node_modules/
-npm-debug.log
-yarn-error.log
-.next/
-out/
-dist/
-
-# Uploads & Temporary Files
-/tmp/
-/uploads/
-*.csv
-*.png
-*.jpg
+Thumbs.db
 
 # Logs
 *.log
 logs/
-
-# OS
-Thumbs.db
-.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 
-# IDE settings
-.vscode/settings.json
-.idea/
-
-# Sandbox outputs
-/sandbox-output/
+# Local/Temporary Data
+/tmp/
 /temp/
+/uploads/
+/sandbox-output/
+chart_schemas.json
+*.csv
+*.xlsx
+*.png
+*.jpg
+*.jpeg
 
-# Development
-.env.development.local
-.env.test.local
-.env.production.local
+# Project Specific
+.gemini/
+.daytona/
+postgres-data/
+
+# Deployment
+.vercel
+.netlify
