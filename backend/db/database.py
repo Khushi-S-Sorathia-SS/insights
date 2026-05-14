@@ -8,7 +8,7 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from ..config import get_settings
 
@@ -55,6 +55,32 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Schema Evolution: Add missing columns to dashboards table if they don't exist
+        print("Checking for schema updates...")
+        # Check dataset_id
+        result = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='dashboards' AND column_name='dataset_id'"))
+        if not result.fetchone():
+            print("Migration: Adding dataset_id to dashboards")
+            await conn.execute(text("ALTER TABLE dashboards ADD COLUMN dataset_id UUID REFERENCES datasets(id) ON DELETE CASCADE"))
+            
+        # Check active_version
+        result = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='dashboards' AND column_name='active_version'"))
+        if not result.fetchone():
+            print("Migration: Adding active_version to dashboards")
+            await conn.execute(text("ALTER TABLE dashboards ADD COLUMN active_version INTEGER DEFAULT 1"))
+            
+        # Check last_layout_update
+        result = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='dashboards' AND column_name='last_layout_update'"))
+        if not result.fetchone():
+            print("Migration: Adding last_layout_update to dashboards")
+            await conn.execute(text("ALTER TABLE dashboards ADD COLUMN last_layout_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+
+        # Check display_name in datasets
+        result = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='datasets' AND column_name='display_name'"))
+        if not result.fetchone():
+            print("Migration: Adding display_name to datasets")
+            await conn.execute(text("ALTER TABLE datasets ADD COLUMN display_name VARCHAR UNIQUE"))
 
     # Seed chart templates if the table is empty
     async with AsyncSessionLocal() as session:

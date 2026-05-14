@@ -21,9 +21,11 @@ async def create_dashboard_version(db: AsyncSession, old_dash_id: uuid.UUID) -> 
 
     # Create new dashboard record
     new_dash = Dashboard(
+        dataset_id=old_dash.dataset_id,
         name=old_dash.name,
         layout_json=old_dash.layout_json,
         version=old_dash.version + 1,
+        active_version=old_dash.active_version + 1,
         created_at=datetime.utcnow()
     )
     db.add(new_dash)
@@ -58,12 +60,13 @@ async def apply_dashboard_changes(
     result = await db.execute(select(DashboardComponent).filter(DashboardComponent.dashboard_id == dash_id))
     existing_components = {str(c.id): c for c in result.scalars().all()}
 
-    # Track max Y to append new ones
+    # Track max Y to append new ones (y + h)
     max_y = 0
     for comp in existing_components.values():
         y = comp.position.get("y", 0)
-        if y > max_y:
-            max_y = y
+        h = comp.position.get("h", 0)
+        if y + h > max_y:
+            max_y = y + h
 
     # Process each chart schema
     for i, schema in enumerate(chart_schemas):
@@ -89,9 +92,15 @@ async def apply_dashboard_changes(
             target_comp.component_type = "chart"
         else:
             # Add new component
+            # Calculate grid position: alternate x=0 and x=6
+            current_idx = len(existing_components) + i
+            x = (current_idx % 2) * 6
+            # Increment y only when we start a new row
+            row_y = max_y + (i // 2) * 4
+            
             new_comp = DashboardComponent(
                 dashboard_id=dash_id,
-                position={"x": (len(existing_components) + i) % 2, "y": max_y + 1 + i, "w": 6, "h": 4},
+                position={"x": x, "y": row_y, "w": 6, "h": 4},
                 component_type="chart",
                 chart_schema=schema
             )
@@ -104,9 +113,11 @@ async def apply_dashboard_changes(
         if insight_comp:
             insight_comp.chart_schema = {"content": insight_text}
         else:
+            # Place insight below newly added charts
+            new_charts_height = ((len(chart_schemas) + 1) // 2) * 4
             new_insight = DashboardComponent(
                 dashboard_id=dash_id,
-                position={"x": 0, "y": max_y + len(chart_schemas) + 2, "w": 12, "h": 2},
+                position={"x": 0, "y": max_y + new_charts_height, "w": 12, "h": 2},
                 component_type="insight",
                 chart_schema={"content": insight_text}
             )

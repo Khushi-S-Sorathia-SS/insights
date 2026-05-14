@@ -42,17 +42,10 @@ llm = AzureChatOpenAI(
     temperature=0.1,
 )
 
-# Global variables for current dataset path and execution results
-current_dataset_path = None
-last_execution_charts = []
-
-
+# Global variables removed for thread safety in async environment
 @trace_function(name="generate_analysis_code", tags=["agent", "code_generation", "deepagents"])
 def generate_analysis_code(user_query: str, dataset: DatasetMetadata, raw_data: bytes, chart_rules: str = "", current_widgets: list = None) -> dict:
     """Generate Python code using Deep Agents with Azure OpenAI and Daytona sandbox. Returns dict with output and chart schemas."""
-    global current_dataset_path, last_execution_charts
-    current_dataset_path = None  # No local file path; data comes from PostgreSQL
-    last_execution_charts = []  # Reset for new execution
 
     # Initialize Daytona client for this session
     daytona_client = Daytona()
@@ -127,6 +120,10 @@ REPLACEMENT AND AMBIGUITY RULES:
 - If you find a match, your output in `/home/daytona/chart_schemas.json` MUST include a `"replace_id": "THE_MATCHING_WIDGET_ID"` field inside the chart object.
 - If there is ambiguity (multiple charts with same type/title), STOP and ask the user for clarification.
 - If you are adding a new chart that doesn't replace anything, do not include "replace_id".
+- **LAYOUT SIZING**: For every chart you generate, you MUST include suggested dimensions:
+    - `"w"`: Width on a 12-column grid. (e.g., 4 for small, 6 for medium, 12 for full-width).
+    - `"h"`: Height in grid units (e.g., 3 for simple cards, 5 for complex charts).
+    - Choose these based on chart complexity and semantic importance.
 - IMPORTANT: You MUST output valid JSON. No markdown.
 
 FINAL RESPONSE RULES:
@@ -185,11 +182,13 @@ Please analyze the dataset and answer the query. Generate and execute Python cod
         try:
             # Use the Daytona sandbox filesystem API directly to read the generated schemas.
             # The Daytona sandbox is a remote environment, and this is the most reliable way to pull files.
+            print(f"DEBUG: Attempting to download chart_schemas.json from sandbox...")
             try:
                 output_bytes = sandbox.fs.download_file("/home/daytona/chart_schemas.json")
                 output_str = output_bytes.decode("utf-8").strip()
+                print(f"DEBUG: Downloaded {len(output_str)} chars from sandbox.")
             except Exception as e:
-                print(f"Chart schema file not found or unreadable: {e}")
+                print(f"DEBUG: Chart schema file not found or unreadable in sandbox: {e}")
                 output_str = ""
             
             if output_str:
@@ -203,32 +202,46 @@ Please analyze the dataset and answer the query. Generate and execute Python cod
                     if match:
                         output_str = match.group(1)
                         
-                print(f"DEBUG CHART SCHEMAS: {output_str}")
+                print(f"DEBUG: Parsing Chart Schemas: {output_str[:200]}...")
                 last_execution_charts = json.loads(output_str)
+                print(f"DEBUG: Successfully parsed {len(last_execution_charts)} charts from file.")
                 
-                # Clean NaN values from chart schemas to make them JSONB-compatible
-                def clean_nan(obj):
+                # Clean NaN and Infinity values from chart schemas to make them JSONB-compatible
+                def clean_numeric_values(obj):
                     if isinstance(obj, dict):
-                        return {k: clean_nan(v) for k, v in obj.items()}
+                        return {k: clean_numeric_values(v) for k, v in obj.items()}
                     elif isinstance(obj, list):
-                        return [clean_nan(item) for item in obj]
-                    elif isinstance(obj, float) and math.isnan(obj):
-                        return None
+                        return [clean_numeric_values(item) for item in obj]
+                    elif isinstance(obj, float):
+                        if math.isnan(obj) or math.isinf(obj):
+                            return None
+                        return obj
                     else:
                         return obj
                 
-                last_execution_charts = [clean_nan(chart) for chart in last_execution_charts]
+                chart_schemas = [clean_numeric_values(chart) for chart in last_execution_charts]
             else:
-                last_execution_charts = []
+                print("DEBUG: No chart schemas found in sandbox file. Attempting fallback parse from response text...")
+                # Fallback: Try to find JSON in the response text if the file is missing/empty
+                match = re.search(r"\[\s*\{.*\}\s*\]", output_text, re.DOTALL)
+                if match:
+                    try:
+                        potential_json = match.group(0)
+                        chart_schemas = json.loads(potential_json)
+                        print(f"DEBUG: Fallback parsed {len(chart_schemas)} charts from response text.")
+                    except:
+                        chart_schemas = []
+                else:
+                    chart_schemas = []
         except Exception as e:
             # If chart retrieval or parsing fails, continue without schemas
-            print(f"Failed to parse charts: {e}")
-            last_execution_charts = []
+            print(f"DEBUG: Failed to parse charts: {e}")
+            chart_schemas = []
 
         # Return both output text and captured chart schemas
         return {
             "output": output_text,
-            "chart_schemas": last_execution_charts
+            "chart_schemas": chart_schemas
         }
 
     finally:

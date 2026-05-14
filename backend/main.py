@@ -14,6 +14,7 @@ from .db.database import init_db
 from .routes.chat import router as chat_router
 from .routes.upload import router as upload_router
 from .routes.dashboard import router as dashboard_router
+from .routes.datasets import router as datasets_router
 from .utils.error_handler import InsightsException
 from .utils.logger import get_logger
 from .utils.langsmith_tracer import get_langsmith_tracer
@@ -121,6 +122,7 @@ async def root():
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(chat_router, prefix="/api", tags=["Chat"])
 app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
+app.include_router(datasets_router, prefix="/api", tags=["Datasets"])
 
 
 if __name__ == "__main__":

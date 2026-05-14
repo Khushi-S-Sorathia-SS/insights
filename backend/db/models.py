@@ -20,10 +20,14 @@ class Dataset(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     filename = Column(String, nullable=False)
+    display_name = Column(String, unique=True, nullable=True) # Unique name for workspace identification
     schema_json = Column(JSONB, nullable=False)
     version = Column(Integer, default=1, nullable=False)
     raw_data = Column(LargeBinary, nullable=False)  # Stores the CSV content directly
     uploaded_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    dashboard = relationship("Dashboard", back_populates="dataset", uselist=False)
+    chat_history = relationship("ChatMessage", back_populates="dataset", cascade="all, delete-orphan")
 
 
 class Dashboard(Base):
@@ -33,12 +37,16 @@ class Dashboard(Base):
     __tablename__ = "dashboards"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     layout_json = Column(JSONB, nullable=False)
     version = Column(Integer, default=1, nullable=False)
+    active_version = Column(Integer, default=1, nullable=False)
+    last_layout_update = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+    dataset = relationship("Dataset", back_populates="dashboard")
     components = relationship("DashboardComponent", back_populates="dashboard", cascade="all, delete-orphan")
 
 
@@ -71,6 +79,23 @@ class QueryLog(Base):
     status = Column(String, nullable=False) # E.g., 'success', 'failed'
     error_message = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class ChatMessage(Base):
+    """
+    Persistent chat history linked to a dataset/workspace.
+    """
+    __tablename__ = "chat_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String, nullable=False)  # 'user' or 'assistant'
+    content = Column(String, nullable=False)
+    chart_schema = Column(JSONB, nullable=True)
+    execution_time_ms = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    dataset = relationship("Dataset", back_populates="chat_history")
 
 
 class SemanticDefinition(Base):

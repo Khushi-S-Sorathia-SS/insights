@@ -23,7 +23,7 @@ class FileManager:
     def __init__(self) -> None:
         pass
 
-    async def save_uploaded_csv(self, upload_file: UploadFile, session_id: str, db: AsyncSession) -> DatasetMetadata:
+    async def save_uploaded_csv(self, upload_file: UploadFile, session_id: str, db: AsyncSession, display_name: str = None) -> DatasetMetadata:
         if not upload_file.filename:
             raise InvalidFileFormatError("Unnamed File", ALLOWED_FILE_TYPES)
             
@@ -45,6 +45,11 @@ class FileManager:
 
         try:
             df = pd.read_csv(io.BytesIO(content))
+            # Clean completely empty rows that might inflate row counts (e.g. trailing commas)
+            df = df.dropna(how='all')
+            # Re-encode the cleaned dataframe to bytes to store clean data in the DB
+            content = df.to_csv(index=False).encode('utf-8')
+            size_bytes = len(content)
         except Exception as exc:
             raise CorruptedDataError(str(exc)) from exc
 
@@ -55,6 +60,7 @@ class FileManager:
         # Save to PostgreSQL datasets table
         dataset_record = Dataset(
             filename=filename,
+            display_name=display_name or filename,
             schema_json={
                 "columns": [str(col) for col in df.columns],
                 "dtypes": dtypes,

@@ -19,6 +19,7 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 @trace_async_function(name="chat_endpoint", tags=["chat", "api"])
 async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResponse:
-    """Process a chat message and return analysis."""
-    logger.info(f"Chat endpoint called. Session: {request.session_id}")
+    """Process a chat message and return analysis using persistent workspace."""
+    logger.info(f"Chat endpoint called. Dataset/Session: {request.session_id}")
+    # In the refactored system, session_id sent from frontend is actually the dataset_id
     return await process_chat_request(request.session_id, request.message, db, request.parsed_command)

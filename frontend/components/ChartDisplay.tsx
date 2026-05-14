@@ -12,7 +12,13 @@ interface ChartDisplayProps {
   schema: ChartSchema;
 }
 
-const COLORS = ['#6366f1', '#0ea5e9', '#f43f5e', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+const COLORS = ['#cad2fd', '#c7bc92', '#6c6e79', '#39373d', '#a78bfa', '#fb7185', '#34d399'];
+const GRADIENTS = [
+  { start: '#cad2fd', end: 'rgba(202, 210, 253, 0.2)' },
+  { start: '#c7bc92', end: 'rgba(199, 188, 146, 0.2)' },
+  { start: '#6c6e79', end: 'rgba(108, 110, 121, 0.2)' },
+  { start: '#a78bfa', end: 'rgba(167, 139, 250, 0.2)' },
+];
 
 // Generic Component Registry
 const CHART_REGISTRY: Record<string, any> = {
@@ -25,52 +31,21 @@ const CHART_REGISTRY: Record<string, any> = {
 };
 
 export default function ChartDisplay({ schema }: ChartDisplayProps) {
-  const [top, setTop] = useState(0);
-  const [height, setHeight] = useState(300);
-  const dragInfo = useRef<{ type: 'move' | 'resize', startY: number, initialTop: number, initialHeight: number, pointerId: number, target: HTMLElement } | null>(null);
-
-  const startDrag = (e: React.PointerEvent, type: 'move' | 'resize') => {
-    e.preventDefault();
-    const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture(e.pointerId);
-    dragInfo.current = {
-      type,
-      startY: e.clientY,
-      initialTop: top,
-      initialHeight: height,
-      pointerId: e.pointerId,
-      target
-    };
-  };
-
-  const handlePointerMove = (e: PointerEvent) => {
-    if (!dragInfo.current) return;
-    const deltaY = e.clientY - dragInfo.current.startY;
-    if (dragInfo.current.type === 'move') {
-      setTop(Math.max(0, dragInfo.current.initialTop + deltaY));
-    } else {
-      setHeight(Math.max(150, dragInfo.current.initialHeight + deltaY));
-    }
-  };
-
-  const stopDrag = () => {
-    if (!dragInfo.current) return;
-    dragInfo.current.target.releasePointerCapture(dragInfo.current.pointerId);
-    dragInfo.current = null;
-  };
-
-  useEffect(() => {
-    const onPointerMove = (event: PointerEvent) => handlePointerMove(event);
-    const onPointerUp = () => stopDrag();
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    return () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-    };
-  }, []);
-
-  if (!schema || !schema.data || schema.data.length === 0) return null;
+  if (!schema || !schema.data || schema.data.length === 0) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+          <svg className="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No Data Available</p>
+          <p className="text-[10px] text-slate-600 mt-1 font-medium">Dataset segment empty or processing.</p>
+        </div>
+      </div>
+    );
+  }
 
   const chartType = schema.type?.toLowerCase() || 'bar';
 
@@ -98,10 +73,30 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
     
     // Fallback heuristic if keys are missing in the data
     const dataKeys = Object.keys(processedData[0] || {});
+    console.log('[ChartDisplay] Rendering with schema:', { 
+      type: chartType, 
+      xKey, 
+      yKey, 
+      dataKeys, 
+      dataLength: processedData.length 
+    });
+
     if (dataKeys.length > 0) {
-      if (!dataKeys.includes(xKey)) xKey = dataKeys[0];
-      if (!dataKeys.includes(yKey) && dataKeys.length > 1) {
-         // Try to find a numeric key for Y
+      // Robust key matching (case-insensitive)
+      const findKey = (target: string) => {
+        if (dataKeys.includes(target)) return target;
+        const targetLower = target.toLowerCase();
+        return dataKeys.find(k => k.toLowerCase() === targetLower) || null;
+      };
+
+      const matchedX = findKey(xKey);
+      if (matchedX) xKey = matchedX;
+      else xKey = dataKeys[0];
+
+      const matchedY = findKey(yKey);
+      if (matchedY) yKey = matchedY;
+      else if (dataKeys.length > 1) {
+         // Try to find a numeric key for Y if the requested one didn't match
          const numericKey = dataKeys.find(k => typeof processedData[0][k] === 'number');
          yKey = numericKey || dataKeys[1];
       }
@@ -112,14 +107,14 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
       const isScatter = chartType === 'scatter';
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <WrapperComponent data={processedData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }} style={{ pointerEvents: 'none' }}>
+          <WrapperComponent data={processedData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey={xKey}
               type={isScatter ? 'number' : 'category'}
               axisLine={false}
               tickLine={false}
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
               dy={10}
             />
             <YAxis
@@ -127,24 +122,34 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
               type="number"
               axisLine={false}
               tickLine={false}
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
             />
             <Tooltip
-              contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '12px' }}
-              itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
-              cursor={isScatter ? { strokeDasharray: '3 3' } : undefined}
+              contentStyle={{ 
+                backgroundColor: 'rgba(15, 23, 42, 0.95)', 
+                border: '1px solid rgba(255,255,255,0.12)', 
+                borderRadius: '20px',
+                backdropFilter: 'blur(16px)',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                padding: '12px 16px'
+              }}
+              itemStyle={{ color: '#f8fafc', fontWeight: '800', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+              labelStyle={{ color: '#94a3b8', fontWeight: 'bold', fontSize: '11px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+              cursor={isScatter ? { strokeDasharray: '3 3' } : { fill: 'rgba(99, 102, 241, 0.08)' }}
             />
-            {/* Some DB schemas may define custom colors or properties, we pass them down if they exist */}
             <DataComponent
               dataKey={yKey}
               name={schema.title || yKey}
-              fill={schema.fill || "#6366f1"}
+              fill={schema.fill || "url(#chartGradient)"}
               stroke={schema.stroke || "#6366f1"}
+              strokeWidth={chartType === 'line' ? 3 : 1}
               radius={[6, 6, 0, 0]}
+              animationDuration={1500}
+              animationEasing="ease-in-out"
               {...(schema.extraProps || {})}
             >
-              {processedData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+              {chartType === 'bar' && processedData.map((_, index) => (
+                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} fillOpacity={0.9} />
               ))}
             </DataComponent>
           </WrapperComponent>
@@ -156,13 +161,18 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
     if (config.isPolar) {
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <WrapperComponent data={processedData} style={{ pointerEvents: 'none' }}>
+          <WrapperComponent data={processedData}>
             <PolarGrid stroke="rgba(255,255,255,0.1)" />
-            <PolarAngleAxis dataKey={xKey} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-            <PolarRadiusAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
+            <PolarAngleAxis dataKey={xKey} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }} />
+            <PolarRadiusAxis tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }} />
             <Tooltip
-              contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '12px' }}
-              itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
+              contentStyle={{ 
+                backgroundColor: 'rgba(15, 23, 42, 0.9)', 
+                border: '1px solid rgba(255,255,255,0.1)', 
+                borderRadius: '16px',
+                backdropFilter: 'blur(10px)'
+              }}
+              itemStyle={{ color: '#f8fafc', fontWeight: 'bold', fontSize: '12px' }}
             />
             <DataComponent
               name={schema.title || yKey}
@@ -180,27 +190,32 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
     // Render for Pie/Donut charts
     return (
       <ResponsiveContainer width="100%" height="100%">
-        <WrapperComponent style={{ pointerEvents: 'none' }}>
+        <WrapperComponent>
           <DataComponent
             data={processedData}
             dataKey={yKey}
             nameKey={xKey}
             cx="50%"
             cy="50%"
-            innerRadius={schema.innerRadius || 70}
-            outerRadius={schema.outerRadius || 100}
-            paddingAngle={2}
-            stroke="rgba(11, 19, 38, 0.8)"
+            innerRadius={schema.innerRadius || 60}
+            outerRadius={schema.outerRadius || 90}
+            paddingAngle={4}
+            stroke="rgba(15, 23, 42, 0.8)"
             strokeWidth={2}
             {...(schema.extraProps || {})}
           >
-            {processedData.map((entry, index) => (
+            {processedData.map((_, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </DataComponent>
           <Tooltip
-            contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '12px' }}
-            itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
+            contentStyle={{ 
+              backgroundColor: 'rgba(15, 23, 42, 0.9)', 
+              border: '1px solid rgba(255,255,255,0.1)', 
+              borderRadius: '16px',
+              backdropFilter: 'blur(10px)'
+            }}
+            itemStyle={{ color: '#f8fafc', fontWeight: 'bold', fontSize: '12px' }}
           />
           <Legend verticalAlign="bottom" iconType="circle" />
         </WrapperComponent>
@@ -209,21 +224,23 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
   };
 
   return (
-    <div className="glass-card p-6 animate-fade-in border-t-2 border-t-indigo-500/30 absolute" style={{ top: `${top}px`, width: '100%', height: `${height}px` }}>
-      <div onPointerDown={(e) => startDrag(e, 'move')} className="cursor-move p-2 bg-white/5 rounded-t-lg flex justify-center">
-        <div className="w-6 h-1 bg-slate-400 rounded-full"></div>
-      </div>
-      {schema.title && (
-        <div className="flex flex-col mb-6">
-          <h3 className="text-sm font-black text-slate-100 uppercase tracking-widest">{schema.title}</h3>
-          <div className="w-10 h-1 bg-gradient-to-r from-indigo-500 to-transparent mt-2 rounded-full"></div>
-        </div>
-      )}
-      <div className="w-full" style={{ height: `${height - 120}px` }}>
+    <div className="w-full h-full flex flex-col">
+      <svg width={0} height={0} className="absolute">
+        <defs>
+          <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#cad2fd" stopOpacity={0.8}/>
+            <stop offset="95%" stopColor="#cad2fd" stopOpacity={0}/>
+          </linearGradient>
+          {COLORS.map((color, i) => (
+            <linearGradient key={`grad-${i}`} id={`grad-${i}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.9}/>
+              <stop offset="95%" stopColor={color} stopOpacity={0.4}/>
+            </linearGradient>
+          ))}
+        </defs>
+      </svg>
+      <div className="flex-1 min-h-0">
         {renderGenericChart()}
-      </div>
-      <div onPointerDown={(e) => startDrag(e, 'resize')} className="cursor-ns-resize p-2 bg-white/5 rounded-b-lg flex justify-center absolute bottom-0 left-0 right-0">
-        <div className="w-6 h-1 bg-slate-400 rounded-full"></div>
       </div>
     </div>
   );

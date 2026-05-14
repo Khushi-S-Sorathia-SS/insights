@@ -15,6 +15,7 @@ from ..utils.langsmith_tracer import trace_function
 
 class IntentType(str, Enum):
     DIRECT = "direct"
+    DATA_QUERY = "data_query"
     ANALYSIS = "analysis"
     REPLACE = "replace"
     CREATE = "create"
@@ -51,7 +52,8 @@ Analyze the user's message and extract the following information:
 
 1. **Intent**: What does the user want to do?
    - "direct": Simple questions about data (counts, summaries, missing values)
-   - "analysis": Create new charts/visualizations
+   - "data_query": Complex data questions that need calculation but no chart (e.g., "how many men earning >50k")
+   - "analysis": Create new charts/visualizations (e.g., "plot salary vs gender")
    - "replace": Replace an existing chart with a different type
    - "create": Create a new chart
    - "modify": Modify existing chart properties
@@ -176,6 +178,14 @@ def fallback_classification(message: str) -> Dict[str, Any]:
         return {
             "intent": "analysis",
             "params": extract_analysis_params(text)
+        }
+
+    # Check for data query commands
+    data_query_keywords = ["how many", "count", "average", "mean", "median", "sum", "total", "percentage", "proportion", "what is", "calculate"]
+    if any(keyword in text for keyword in data_query_keywords):
+        return {
+            "intent": "data_query",
+            "params": {}
         }
 
     # Default to direct

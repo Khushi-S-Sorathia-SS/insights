@@ -5,17 +5,19 @@
 @import "tailwindcss/utilities";
 
 :root {
-  --background: #0b1326;
-  --surface: rgba(23, 31, 51, 0.7);
-  --surface-hover: rgba(30, 41, 59, 0.8);
-  --primary: #6366f1;
-  --primary-glow: rgba(99, 102, 241, 0.3);
-  --secondary: #0ea5e9;
-  --accent: #f43f5e;
-  --text-primary: #dae2fd;
+  --background: #020203;
+  --surface: rgba(26, 25, 28, 0.65);
+  --surface-hover: rgba(26, 25, 28, 0.85);
+  --primary: #cad2fd;
+  --primary-glow: rgba(202, 210, 253, 0.25);
+  --secondary: #c7bc92;
+  --accent: #6c6e79;
+  --text-primary: #cad2fd;
   --text-secondary: #908fa0;
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-blur: blur(16px);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(24px);
+  --card-radius: 24px;
+  --font-inter: 'Inter', sans-serif;
 }
 
 * {
@@ -30,8 +32,8 @@ body {
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   background-image: 
-    radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
-    radial-gradient(circle at 100% 100%, rgba(14, 165, 233, 0.1) 0%, transparent 40%);
+    radial-gradient(circle at 0% 0%, rgba(202, 210, 253, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(199, 188, 146, 0.05) 0%, transparent 50%);
   background-attachment: fixed;
   min-height: 100vh;
 }
@@ -42,15 +44,20 @@ body {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  border-radius: 1rem;
+  border-radius: var(--card-radius);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-card:hover {
   background: var(--surface-hover);
   border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 0 15px var(--primary-glow);
   transform: translateY(-2px);
+}
+
+.glow-border {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 20px var(--primary-glow);
 }
 
 /* Custom Scrollbar */
@@ -105,38 +112,80 @@ body {
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
 }
 
-/* React Grid Layout Overrides */
-.react-grid-placeholder {
-  background: var(--primary) !important;
-  opacity: 0.1 !important;
-  border-radius: 1rem !important;
-  border: 2px dashed var(--primary) !important;
-}
-
-.react-resizable-handle {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  bottom: 0;
-  right: 0;
-  cursor: se-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.react-resizable-handle-se {
-  bottom: 8px;
-  right: 8px;
-}
-
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+/* React Grid Layout Core Styles */
+.react-grid-layout {
+  position: relative;
+  transition: height 200ms ease;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top;
+}
+
+.react-grid-item.cssTransforms {
+  transition-property: transform;
+}
+
+.react-grid-item.resizing {
+  z-index: 1;
+  will-change: width, height;
+}
+
+.react-grid-item.react-draggable-dragging {
+  transition: none !important;
+  z-index: 50 !important;
+  will-change: transform;
+}
+
+.react-grid-item.dropping {
+  visibility: hidden;
+}
+
+.react-grid-placeholder {
+  background: var(--primary) !important;
+  opacity: 0.1 !important;
+  border-radius: 1rem !important;
+  border: 2px dashed var(--primary) !important;
+  z-index: 2;
+  transition: none !important;
+}
+
+.react-resizable-handle {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  bottom: 4px;
+  right: 4px;
+  cursor: se-resize;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.react-grid-item:hover .react-resizable-handle {
+  opacity: 1;
+}
+
+.react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--primary);
+  border-bottom: 2px solid var(--primary);
+  border-radius: 1px;
 }
 
 /* GridStack Premium Styling */
