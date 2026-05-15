@@ -27,37 +27,8 @@ from sqlalchemy import select
 logger = get_logger(__name__)
 
 
-def find_chart_to_replace(widgets: list, source_type: str = None, target_title: str = None) -> str:
-    """Find the chart to replace based on parsed command parameters."""
-    if not widgets:
-        return None
-    
-    if target_title:
-        target_title_lower = target_title.lower()
-        for widget in widgets:
-            if widget.get("type") == "chart":
-                widget_title = widget.get("title", "").lower()
-                if target_title_lower in widget_title:
-                    return widget["id"]
-    
-    if source_type:
-        candidates = []
-        for widget in widgets:
-            if widget.get("type") == "chart":
-                widget_title = widget.get("title", "").lower()
-                if source_type in widget_title:
-                    candidates.append(widget)
-        
-        if len(candidates) == 1:
-            return candidates[0]["id"]
-        
-        if source_type == "pie":
-            pie_candidates = [w for w in widgets if w.get("type") == "chart" and 
-                            "distribution" in w.get("title", "").lower()]
-            if len(pie_candidates) == 1:
-                return pie_candidates[0]["id"]
-    
-    return None
+# Logic for chart replacement and modification has been moved to the Deep Agent reasoning layer.
+# pipeline.py serves as a thin orchestrator.
 
 
 @trace_function(name="process_chat_request", tags=["chat", "pipeline"])
@@ -117,7 +88,8 @@ async def process_chat_request(dataset_id: str, user_input: str, db: AsyncSessio
     chart_rules = await get_chart_rules(db)
 
     # Fetch current dashboard components for context
-    current_widgets = []
+    current_widgets_summary = []
+    current_widgets_full = []
     dash_result = await db.execute(
         select(Dashboard)
         .filter(Dashboard.dataset_id == ds_uuid)
@@ -129,53 +101,75 @@ async def process_chat_request(dataset_id: str, user_input: str, db: AsyncSessio
         comp_result = await db.execute(select(DashboardComponent).filter(DashboardComponent.dashboard_id == dashboard_record.id))
         components = comp_result.scalars().all()
         for comp in components:
-            widget = {
+            # Full raw schema for the sandbox helper
+            widget_full = {
                 "id": str(comp.id),
-                "type": comp.component_type,
+                "component_type": comp.component_type,
+                "schema": comp.chart_schema
+            }
+            current_widgets_full.append(widget_full)
+            
+            # Lightweight summary for the prompt
+            widget_summary = {
+                "id": str(comp.id),
+                "component_type": comp.component_type,
                 "title": comp.chart_schema.get("title", "Untitled") if comp.chart_schema else "Untitled"
             }
-            current_widgets.append(widget)
+            current_widgets_summary.append(widget_summary)
 
-    # generate_analysis_code
-    agent_result = await asyncio.to_thread(
-        generate_analysis_code, 
-        user_input, 
-        metadata, 
-        raw_data, 
-        chart_rules,
-        current_widgets
-    )
-    output_text = agent_result.get("output", "")
-    chart_schemas = agent_result.get("chart_schemas", [])
+    # Route based on intent: Lightweight for 'direct', Sandbox for everything else
+    if intent == IntentType.DIRECT:
+        logger.info("Routing to Lightweight NLP Executor (No Sandbox)")
+        try:
+            # Execute locally using pandas for efficiency
+            df = pd.read_csv(io.BytesIO(raw_data))
+            output_text = execute_nlp_query(user_input, df)
+            chart_schemas = [] # Strictly no charts for direct queries
+        except Exception as e:
+            logger.error(f"Lightweight executor failed: {e}")
+            output_text = f"I encountered an error analyzing the data locally: {str(e)}"
+            chart_schemas = []
+    else:
+        logger.info(f"Routing to Deep Agent Sandbox (Intent: {intent})")
+        # generate_analysis_code (Sandbox Path)
+        agent_result = await asyncio.to_thread(
+            generate_analysis_code, 
+            user_input, 
+            metadata, 
+            raw_data, 
+            chart_rules,
+            current_widgets_summary,
+            current_widgets_full
+        )
+        output_text = agent_result.get("output", "")
+        chart_schemas = agent_result.get("chart_schemas", [])
     
     logger.info("Generated analysis for query: %s", output_text[:100])
     
     # Format the response
     formatted_content = output_text
+    
+    # Strictly enforce Graph Prevention for DIRECT and DATA_QUERY intents
+    if intent in [IntentType.DIRECT, IntentType.DATA_QUERY]:
+        chart_schemas = []
+    
     if chart_schemas:
         formatted_content += f"\n\n[{len(chart_schemas)} charts generated]"
 
     # Handle dashboard updates if needed
     new_dash_id = None
-    if dashboard_record and (chart_schemas or intent == IntentType.REPLACE):
+    if dashboard_record and chart_schemas:
         # Use parsed command parameters for intelligent replacement
-        if chart_schemas and intent == IntentType.REPLACE:
-            params = parsed_command_obj.params
-            for schema in chart_schemas:
-                if not schema.get("replace_id"):
-                    target_chart_id = find_chart_to_replace(
-                        current_widgets, 
-                        params.get("source_type"), 
-                        params.get("target_title")
-                    )
-                    if target_chart_id:
-                        schema["replace_id"] = target_chart_id
-                        if params.get("target_type"):
-                            schema["type"] = params["target_type"]
-                        break
-
         # Versioning/Applying changes
-        new_dash_id = await create_dashboard_version(db, dashboard_record.id)
+        new_dash_id, id_mapping = await create_dashboard_version(db, dashboard_record.id)
+        
+        # Map old replace_id (identified by the Agent) to the new cloned component ID
+        if chart_schemas:
+            for schema in chart_schemas:
+                old_id = schema.get("replace_id")
+                if old_id and old_id in id_mapping:
+                    schema["replace_id"] = id_mapping[old_id]
+                    
         await apply_dashboard_changes(db, new_dash_id, chart_schemas, output_text)
         
         # Update dashboard metadata (tracking active version)

@@ -22,6 +22,7 @@ interface DashboardProps {
   widgets: DashboardWidgetData[];
   onWidgetsChange?: (widgets: DashboardWidgetData[]) => void;
   currentVersion: number;
+  onVersionChange?: (version: number) => void;
   chatPanel?: React.ReactNode;
   uploadPanel?: React.ReactNode;
   kpiPanel?: React.ReactNode;
@@ -32,6 +33,7 @@ export default function Dashboard({
   widgets,
   onWidgetsChange,
   currentVersion,
+  onVersionChange,
   chatPanel,
   uploadPanel,
   kpiPanel
@@ -122,6 +124,7 @@ export default function Dashboard({
       await rollbackDashboard(sessionId, vId);
       const data = await getDashboardById(vId);
       if (onWidgetsChange) onWidgetsChange(data.widgets);
+      if (onVersionChange) onVersionChange(data.version);
       setShowHistory(false);
     } catch (err) {
       console.error('Rollback failed', err);
@@ -135,7 +138,8 @@ export default function Dashboard({
     w: w.position?.w || 6,
     h: w.position?.h || 4,
     minW: 2,
-    minH: 2
+    minH: 2,
+    static: !isEditMode
   }));
 
   const layouts = {
@@ -156,6 +160,7 @@ export default function Dashboard({
       }));
       const data = await saveDashboardVersion(sessionId, layoutData);
       if (onWidgetsChange) onWidgetsChange(data.widgets);
+      if (onVersionChange) onVersionChange(data.version);
       setIsEditMode(false);
       console.log('New version saved successfully');
     } catch (error) {

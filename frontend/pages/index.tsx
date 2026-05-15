@@ -205,6 +205,7 @@ export default function Home() {
                 widgets={dashboardWidgets}
                 onWidgetsChange={setDashboardWidgets}
                 currentVersion={currentVersion}
+                onVersionChange={setCurrentVersion}
                 kpiPanel={
                   datasetMetadata && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

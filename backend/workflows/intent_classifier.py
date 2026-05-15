@@ -51,9 +51,9 @@ You are an expert at parsing user commands for a data visualization dashboard.
 Analyze the user's message and extract the following information:
 
 1. **Intent**: What does the user want to do?
-   - "direct": Simple questions about data (counts, summaries, missing values)
-   - "data_query": Complex data questions that need calculation but no chart (e.g., "how many men earning >50k")
-   - "analysis": Create new charts/visualizations (e.g., "plot salary vs gender")
+   - "direct": Simple natural language questions about the data (e.g., "how many employees are there", "what are the columns"). These are lightweight queries.
+   - "data_query": Complex data questions that need calculation/aggregation but no chart (e.g., "what is the average salary of managers compared to engineers"). These use the sandbox.
+   - "analysis": Create new charts/visualizations or perform deep analysis (e.g., "plot salary vs gender"). These use the sandbox.
    - "replace": Replace an existing chart with a different type
    - "create": Create a new chart
    - "modify": Modify existing chart properties

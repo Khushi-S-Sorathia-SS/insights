@@ -191,9 +191,10 @@ User sends: "Replace the pie chart with a bar chart"
          (Direct)       (Analysis)
               │             │
        ┌──────▼──────┐     │
-       │ _direct_    │     │
-       │ response()  │     │
-       │ Pandas only │     │
+       │ nlp_query_  │     │
+       │ executor.py │     │
+       │ Local Pandas│     │
+       │ NO CHARTS   │     │
        └──────┬──────┘     │
               │             │
               │      ┌──────▼──────────────────┐
@@ -259,11 +260,12 @@ START → classify → validate → END
 
 ```python
 class IntentType(str, Enum):
-    DIRECT = "direct"      # Simple factual queries
-    ANALYSIS = "analysis"  # Create new visualizations
-    REPLACE = "replace"    # Replace existing chart with different type
-    CREATE = "create"      # Add new chart
-    MODIFY = "modify"      # Modify existing chart properties
+    DIRECT = "direct"          # Simple text queries (Lightweight NLP, No Charts)
+    DATA_QUERY = "data_query"  # Complex calculations (DeepAgent, No Charts)
+    ANALYSIS = "analysis"      # Visualizations (DeepAgent Sandbox, Charts Allowed)
+    REPLACE = "replace"        # Replace existing chart with different type
+    CREATE = "create"          # Add new chart
+    MODIFY = "modify"          # Modify existing chart properties
 ```
 
 ### Fallback Mechanism
@@ -284,16 +286,19 @@ generate_analysis_code()
         │
         ├── 1. Daytona() → create sandbox
         ├── 2. sandbox.fs.upload_file(raw_csv_bytes, "/home/daytona/data.csv")
-        ├── 3. Build system prompt with:
+        ├── 3. Upload Context:
+        │      - sandbox.fs.upload_file(dashboard_schemas.json)  # Full widget metadata
+        │      - sandbox.fs.upload_file(dashboard_helpers.py)    # Agent query utility
+        ├── 4. Build system prompt with:
         │      - Dataset metadata (columns, dtypes, preview rows)
         │      - Chart template rules from semantic_definitions
-        │      - Current dashboard widgets (for replace ID matching)
-        │      - Strict instructions: no matplotlib, output JSON only
-        ├── 4. create_deep_agent(model=AzureChatOpenAI, backend=DaytonaSandbox)
-        ├── 5. agent.invoke() → generates & executes Python code
-        ├── 6. sandbox.fs.download_file("/home/daytona/chart_schemas.json")
-        ├── 7. Parse JSON, clean NaN values, strip markdown artifacts
-        └── 8. sandbox.delete() (always, via finally block)
+        │      - Lightweight widget summary list (ID, type, title)
+        │      - Instructions on using `dashboard_helpers.py` for chart discovery
+        ├── 5. create_deep_agent(model=AzureChatOpenAI, backend=DaytonaSandbox)
+        ├── 6. agent.invoke() → generates & executes Python code
+        ├── 7. sandbox.fs.download_file("/home/daytona/chart_schemas.json")
+        ├── 8. Parse JSON, clean NaN values, strip markdown artifacts
+        └── 9. sandbox.delete() (always, via finally block)
 ```
 
 ### Agent Constraints
@@ -301,10 +306,11 @@ generate_analysis_code()
 The system prompt enforces strict rules:
 - **No matplotlib/PNG** — Agent must output JSON chart schemas only
 - **Column validation** — Agent must verify column names before generating code
-- **Standardized output path** — All schemas written to `/home/daytona/chart_schemas.json`
+- **Standardized output path** — All schemas written to `/home/daytona/chart_schemas.json` (even for chart replacements)
 - **Install dependencies** — First code step always installs pandas via pip
 - **No code in response** — Final text response is stripped of all code blocks and file paths
-- **Replace ID matching** — Agent includes `replace_id` when swapping existing charts
+- **Self-Serve Chart Discovery** — Agent uses `dashboard_helpers.py` to identify `replace_id` targets instead of relying on pre-parsed backend orchestration.
+- **Conversational Fallback** — If a chart target is ambiguous (e.g., multiple pie charts found), the agent is instructed to ask the user for clarification rather than guessing or replacing randomly.
 
 ### Harness Profile
 

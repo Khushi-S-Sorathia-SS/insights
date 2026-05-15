@@ -8,16 +8,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Dashboard, DashboardComponent
 
-async def create_dashboard_version(db: AsyncSession, old_dash_id: uuid.UUID) -> uuid.UUID:
+from typing import Tuple, Dict
+
+async def create_dashboard_version(db: AsyncSession, old_dash_id: uuid.UUID) -> Tuple[uuid.UUID, Dict[str, str]]:
     """
     Creates a new version of the dashboard by cloning the existing one.
-    Returns the new dashboard ID.
+    Returns the new dashboard ID and a mapping of old component IDs to new component IDs.
     """
+    id_mapping = {}
+    
     # Get old dashboard
     result = await db.execute(select(Dashboard).filter(Dashboard.id == old_dash_id))
     old_dash = result.scalars().first()
     if not old_dash:
-        return old_dash_id
+        return old_dash_id, id_mapping
 
     # Create new dashboard record
     new_dash = Dashboard(
@@ -43,8 +47,10 @@ async def create_dashboard_version(db: AsyncSession, old_dash_id: uuid.UUID) -> 
             chart_schema=comp.chart_schema
         )
         db.add(new_comp)
+        await db.flush() # flush to get new_comp.id
+        id_mapping[str(comp.id)] = str(new_comp.id)
 
-    return new_dash.id
+    return new_dash.id, id_mapping
 
 async def apply_dashboard_changes(
     db: AsyncSession, 

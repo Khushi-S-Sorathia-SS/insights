@@ -1,4 +1,5 @@
 import pandas as pd
+import re
 from typing import Any
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,12 +18,18 @@ llm = AzureChatOpenAI(
 )
 
 PROMPT_TEMPLATE = """
-You are an expert Python data analyst.
-Given the following pandas DataFrame schema and a user query, write Python code to calculate the answer.
+You are a precision-focused data analyst.
+Given the following pandas DataFrame schema and a user query, write Python code to calculate a textual answer.
+
 The DataFrame is available as the variable `df`. The pandas library is available as `pd`.
-The code MUST store the final human-readable answer (as a string) in a variable named `result`.
-Do not create any charts or visualizations.
-Ensure your code is safe and does not perform any destructive operations.
+The code MUST store the final human-readable answer (as a string or number) in a variable named `result`.
+
+STRICT CONSTRAINTS:
+1. Do NOT create any charts, plots, or visualizations.
+2. Do NOT use matplotlib, seaborn, or any other plotting library.
+3. Focus ONLY on calculating the specific answer requested.
+4. If the query is ambiguous, calculate the most likely metric and explain it briefly.
+5. Your response MUST be ONLY the Python code. No markdown backticks.
 
 DataFrame Schema:
 {schema}
@@ -31,12 +38,10 @@ DataFrame Head (first 3 rows):
 {head}
 
 User Query: {query}
-
-Return ONLY the Python code. Do not include markdown formatting (like ```python) or any other text.
 """
 
 def execute_nlp_query(query: str, df: pd.DataFrame) -> str:
-    """Executes a natural language query against a pandas DataFrame using LLM code generation."""
+    """Executes a natural language query against a pandas DataFrame using lightweight local execution."""
     try:
         # Get schema and head for context
         schema = str(df.dtypes)
@@ -48,25 +53,25 @@ def execute_nlp_query(query: str, df: pd.DataFrame) -> str:
         response = chain.invoke({"schema": schema, "head": head, "query": query})
         code = response.content.strip()
         
-        # Clean up markdown if LLM still included it
-        if code.startswith("```python"):
-            code = code[9:]
-        elif code.startswith("```"):
-            code = code[3:]
-        if code.endswith("```"):
-            code = code[:-3]
-        code = code.strip()
+        # Clean up any potential markdown formatting
+        code = re.sub(r'```python\n|```\n|```', '', code)
         
-        logger.info(f"Generated NLP query code:\n{code}")
+        logger.info(f"Executing lightweight NLP code:\n{code}")
         
         # Execute the code in a restricted dictionary
         local_env = {"pd": pd, "df": df}
-        exec(code, {}, local_env)
+        # Note: We use exec here for "lightweight" execution as requested, 
+        # but in a production environment with untrusted users, 
+        # a more restricted sandbox would still be preferred.
+        exec(code, {"__builtins__": {}}, local_env)
         
         if "result" in local_env:
-            return str(local_env["result"])
+            res = local_env["result"]
+            if isinstance(res, (int, float)):
+                return f"The result is {res}"
+            return str(res)
         else:
-            return "Analysis complete, but the 'result' variable was not found in the generated code."
+            return "I analyzed the data but couldn't format a final answer. Could you rephrase your question?"
             
     except Exception as e:
         logger.error(f"Error executing NLP query: {e}")

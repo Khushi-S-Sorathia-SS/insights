@@ -9,9 +9,9 @@ An AI-powered analytics platform that lets users upload employee CSV datasets an
 - **Schema-Driven Visualization**: A generic Recharts rendering engine on the frontend interprets JSON chart schemas (bar, line, pie, area, scatter, radar) without hardcoded chart logic.
 - **Persistent Dashboards**: Dashboard state (widgets, layouts, chart data) is stored in PostgreSQL. Dashboards survive page refreshes and can be reloaded by ID.
 - **Version-Controlled Dashboards**: Every chat-driven change creates a new dashboard version. Users can view version history and roll back to any previous state.
-- **Intelligent Chart Replacement**: Commands like "replace pie chart with bar chart" use LLM-powered intent classification + title/ID matching to swap charts in place.
+- **Intelligent Chart Replacement**: Commands like "replace pie chart with bar chart" use LLM-powered intent classification + self-serve agent discovery via a Python sandbox helper to accurately swap charts without hardcoded backend coupling. Falls back to asking the user if ambiguous.
 - **Drag-and-Drop Layout**: Native pointer-event based widget repositioning with grid snapping (no external grid library).
-- **Secure Sandbox Execution**: All generated Python code runs inside ephemeral Daytona cloud sandboxes — fully isolated from the host.
+- **Secure Sandbox Execution**: All generated Python code runs inside ephemeral Daytona cloud sandboxes — fully isolated from the host. Context and helpers are mounted directly into the sandbox.
 - **Semantic Layer**: Chart templates are stored in PostgreSQL (`semantic_definitions` table) and injected into agent prompts so the LLM always produces valid schemas.
 - **LangSmith Observability**: Full tracing of every LLM call, intent classification, and pipeline execution via LangSmith.
 - **Response Sanitization**: Agent output is stripped of code blocks, file paths, and technical artifacts before reaching the user.
@@ -75,8 +75,9 @@ This project uses a **layered deep-agent architecture** with persistent dashboar
       (Direct)            (Analysis)
            │                    │
     ┌──────▼──────┐     ┌──────▼──────────┐
-    │ Pandas-only │     │  DeepAgents +   │
-    │ fast path   │     │  Daytona Sandbox│
+    │ Lightweight │     │  DeepAgents +   │
+    │ NLP Executor│     │  Daytona Sandbox│
+    │ (No Charts) │     │  (Charts/Math)  │
     └──────┬──────┘     └──────┬──────────┘
            │                    │
     ┌──────▼────────────────────▼──────┐
@@ -109,8 +110,9 @@ This project uses a **layered deep-agent architecture** with persistent dashboar
 | `routes/dashboard.py` | Dashboard CRUD: fetch by session/ID, version listing, rollback, layout updates |
 | `workflows/pipeline.py` | Core orchestrator: intent routing, agent invocation, dashboard versioning, response assembly |
 | `workflows/intent_classifier.py` | LangGraph StateGraph for LLM-based intent classification with keyword fallback |
-| `workflows/agent_planner.py` | DeepAgents + Daytona: creates sandbox, uploads CSV, executes code, retrieves chart schemas |
+| `workflows/agent_planner.py` | DeepAgents + Daytona: creates sandbox, uploads CSV and helpers, executes code, retrieves chart schemas |
 | `workflows/dashboard_manager.py` | Dashboard versioning: clone, apply chart replacements/additions, update insights |
+| `utils/dashboard_helpers.py` | Python utility mounted directly into the agent's sandbox to allow self-serve exploration of existing dashboard schemas without prompt token overload |
 | `workflows/response_formatter.py` | Converts sandbox stdout/stderr into structured `ChatResponse` |
 | `db/database.py` | SQLAlchemy async engine, session factory, table creation, chart template seeding |
 | `db/models.py` | ORM models: `Dataset`, `Dashboard`, `DashboardComponent`, `QueryLog`, `SemanticDefinition` |
@@ -392,11 +394,12 @@ The system classifies user messages into five intent types:
 
 | Intent | Examples | Behaviour |
 |--------|----------|-----------|
-| `direct` | "How many rows?", "Missing values?" | Fast local Pandas computation, no sandbox |
-| `analysis` | "Show salary by department", "Visualize trends" | Full DeepAgents + Daytona pipeline |
-| `replace` | "Replace pie chart with bar chart" | Agent generates new chart + swaps in dashboard |
-| `create` | "Add a scatter plot of experience vs salary" | Agent generates new chart + appends to dashboard |
-| `modify` | "Change the chart title" | Modifies existing chart properties |
+| `direct` | "How many rows?", "What are the columns?" | Fast local execution via `nlp_query_executor.py` (No sandbox, strictly NO charts). |
+| `data_query`| "What is the average salary of managers?" | Executed in Daytona Sandbox for complex math, but charts are strictly suppressed. |
+| `analysis` | "Show salary by department", "Visualize trends" | Full DeepAgents + Daytona pipeline (Charts generated). |
+| `replace` | "Replace pie chart with bar chart" | Agent generates new chart + swaps in dashboard. |
+| `create` | "Add a scatter plot of experience vs salary" | Agent generates new chart + appends to dashboard. |
+| `modify` | "Change the chart title" | Modifies existing chart properties. |
 
 Intent is classified by a **LangGraph StateGraph** with two nodes:
 1. `classify` — LLM-powered extraction via Azure OpenAI
