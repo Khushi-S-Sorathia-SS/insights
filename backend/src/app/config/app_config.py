@@ -78,6 +78,7 @@ class AppConfig:
     # Canonical chart type names and their accepted variants
     CHART_TYPE_VARIANTS: dict[str, list[str]] = {
         "pie":       ["pie", "piechart", "pie chart"],
+        "donut":     ["donut", "donutchart", "donut chart"],
         "bar":       ["bar", "barchart", "bar chart", "column"],
         "line":      ["line", "linechart", "line chart"],
         "area":      ["area", "areachart", "area chart"],

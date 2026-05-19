@@ -101,9 +101,11 @@ async def init_db() -> None:
         )
         existing = result.scalars().all()
 
-        if not existing:
-            logger.info("Seeding chart templates into semantic_definitions...")
-            for seed in CHART_TEMPLATE_SEEDS:
+        existing_names = {t.name for t in existing}
+        seeded_count = 0
+        for seed in CHART_TEMPLATE_SEEDS:
+            if seed["name"] not in existing_names:
+                logger.info(f"Seeding missing chart template: {seed['name']}...")
                 session.add(
                     SemanticDefinition(
                         id=uuid.uuid4(),
@@ -113,12 +115,12 @@ async def init_db() -> None:
                         version=1,
                     )
                 )
+                seeded_count += 1
+        if seeded_count > 0:
             await session.commit()
-            logger.info(f"Seeded {len(CHART_TEMPLATE_SEEDS)} chart templates")
+            logger.info(f"Seeded {seeded_count} missing chart templates")
         else:
-            logger.info(
-                f"Chart templates already exist ({len(existing)} found) — skipping seed"
-            )
+            logger.info("All chart templates already exist — skipping seed")
 
 
 async def _ensure_column(conn, table: str, column: str, ddl: str) -> None:

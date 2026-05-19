@@ -106,10 +106,10 @@ async def insights_error_handler(
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-app.include_router(upload_router,    tags=["upload"])
-app.include_router(chat_router,      tags=["chat"])
-app.include_router(datasets_router,  tags=["datasets"])
-app.include_router(dashboard_router, tags=["dashboard"])
+app.include_router(upload_router,    prefix="/api", tags=["upload"])
+app.include_router(chat_router,      prefix="/api", tags=["chat"])
+app.include_router(datasets_router,  prefix="/api", tags=["datasets"])
+app.include_router(dashboard_router, prefix="/api", tags=["dashboard"])
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

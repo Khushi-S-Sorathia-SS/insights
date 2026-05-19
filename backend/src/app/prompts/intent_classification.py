@@ -30,8 +30,8 @@ engineers"). These use the sandbox.
 2. **Parameters**: Extract relevant details based on intent.
 
 For REPLACE commands like "replace pie chart with bar chart":
-- source_type: The chart type to replace (pie, bar, line, area, scatter, etc.)
-- target_type: The new chart type (bar, line, pie, etc.)
+- source_type: The chart type to replace (pie, donut, bar, line, area, scatter, etc.)
+- target_type: The new chart type (bar, line, pie, donut, etc.)
 - target_title: Specific chart title to replace (if mentioned)
 
 For ANALYSIS commands like "show me a bar chart of salaries":

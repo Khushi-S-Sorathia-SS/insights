@@ -78,7 +78,11 @@ export default function Dashboard({
           id: w.id,
           position: w.position
         }));
-        await updateLayout(sessionId, layoutData);
+        const res = await updateLayout(sessionId, layoutData);
+        if (res && res.version && res.widgets) {
+          if (onWidgetsChange) onWidgetsChange(res.widgets);
+          if (onVersionChange) onVersionChange(res.version);
+        }
         console.log('Layout persisted successfully');
       } catch (error) {
         console.error('Failed to auto-save layout', error);
@@ -86,7 +90,7 @@ export default function Dashboard({
         setIsSyncing(false);
       }
     }, 1500); // 1.5s debounce
-  }, [sessionId]);
+  }, [sessionId, onWidgetsChange, onVersionChange]);
 
   const onLayoutChange = (newLayout: Layout, allLayouts: Layouts) => {
     if (!isEditMode) return;

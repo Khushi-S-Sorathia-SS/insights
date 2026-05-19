@@ -30,10 +30,27 @@ export default function DatasetSelector({ currentDatasetId, onSelect, disabled }
 
   const currentDataset = datasets.find(d => d.id === currentDatasetId);
 
+  const handleToggle = async () => {
+    if (disabled) return;
+    const nextOpen = !isOpen;
+    setIsOpen(nextOpen);
+    if (nextOpen) {
+      try {
+        setLoading(true);
+        const data = await listDatasets();
+        setDatasets(data);
+      } catch (error) {
+        console.error('Failed to refresh datasets', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   return (
     <div className="relative">
       <button
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={handleToggle}
         disabled={disabled}
         className={`flex items-center gap-4 px-5 py-3 rounded-xl border transition-all duration-300 ${
           disabled ? 'opacity-50 cursor-not-allowed bg-white/5 border-white/10' : 

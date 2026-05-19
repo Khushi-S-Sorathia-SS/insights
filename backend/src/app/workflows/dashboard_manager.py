@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Dict, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.config.app_config import AppConfig
@@ -48,16 +48,33 @@ async def create_dashboard_version(
         # Nothing to clone — return the original ID with an empty mapping
         return old_dash_id, id_mapping
 
+    # Fetch the latest dashboard record to compute the absolute maximum version
+    latest_result = await db.execute(
+        select(Dashboard)
+        .filter(Dashboard.dataset_id == old_dash.dataset_id)
+        .order_by(Dashboard.version.desc())
+    )
+    latest_dash = latest_result.scalars().first()
+    new_version = (latest_dash.version + 1) if latest_dash else (old_dash.version + 1)
+
     new_dash = Dashboard(
         dataset_id=old_dash.dataset_id,
         name=old_dash.name,
         layout_json=old_dash.layout_json,
-        version=old_dash.version + 1,
-        active_version=old_dash.active_version + 1,
+        version=new_version,
+        active_version=new_version,
         created_at=datetime.utcnow(),
     )
     db.add(new_dash)
     await db.flush()  # Materialise new_dash.id before cloning components
+
+    # Propagate the active version across all dashboard records for consistency
+    await db.execute(
+        update(Dashboard)
+        .filter(Dashboard.dataset_id == old_dash.dataset_id)
+        .values(active_version=new_version)
+    )
+    await db.flush()
 
     result = await db.execute(
         select(DashboardComponent).filter(
@@ -86,6 +103,7 @@ async def apply_dashboard_changes(
     dash_id: uuid.UUID,
     chart_schemas: list[dict],
     insight_text: str,
+    intent: str = "analysis",
 ) -> None:
     """
     Apply agent-generated chart schemas to a dashboard.
@@ -108,6 +126,8 @@ async def apply_dashboard_changes(
         List of chart schema dicts from the agent. May contain `replace_id`.
     insight_text:
         Natural language insight text from the agent. Empty string means skip.
+    intent:
+        The classified user intent string (e.g. 'replace', 'modify', 'create', 'analysis').
     """
     result = await db.execute(
         select(DashboardComponent).filter(
@@ -136,21 +156,22 @@ async def apply_dashboard_changes(
             target_comp = existing_components[replace_id]
         else:
             # 2. Fuzzy title match — find an existing chart whose title shares
-            #    significant words with the new schema's title
-            new_title = schema.get("title", "").lower()
-            if new_title:
-                for c_id, comp in existing_components.items():
-                    existing_title = (
-                        (comp.chart_schema.get("title", "") if comp.chart_schema else "")
-                        .lower()
-                    )
-                    if any(
-                        word in existing_title
-                        for word in new_title.split()
-                        if len(word) > 3
-                    ):
-                        target_comp = comp
-                        break
+            #    significant words with the new schema's title, ONLY if the intent is replace or modify.
+            if intent in ("replace", "modify"):
+                new_title = schema.get("title", "").lower()
+                if new_title:
+                    for c_id, comp in existing_components.items():
+                        existing_title = (
+                            (comp.chart_schema.get("title", "") if comp.chart_schema else "")
+                            .lower()
+                        )
+                        if any(
+                            word in existing_title
+                            for word in new_title.split()
+                            if len(word) > 3
+                        ):
+                            target_comp = comp
+                            break
 
         if target_comp:
             # In-place replacement
@@ -177,14 +198,14 @@ async def apply_dashboard_changes(
             )
 
     # ── Update or create the insight widget ───────────────────────────────────
+    # We DO NOT overwrite the existing global/dataset insights widget with conversational chatbot responses
+    # as those conversational responses are meant for the ChatWindow and would ruin the high-level dashboard insights.
     if insight_text:
         insight_comp = next(
             (c for c in existing_components.values() if c.component_type == "insight"),
             None,
         )
-        if insight_comp:
-            insight_comp.chart_schema = {"content": insight_text}
-        else:
+        if not insight_comp:
             new_charts_height = ((len(chart_schemas) + 1) // 2) * AppConfig.DEFAULT_WIDGET_HEIGHT
             db.add(
                 DashboardComponent(

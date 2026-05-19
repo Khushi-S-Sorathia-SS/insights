@@ -39,7 +39,20 @@ export default function Home() {
   useEffect(() => {
     const savedDatasetId = localStorage.getItem('insightai_last_active_dataset_id');
     if (savedDatasetId) {
-      handleDatasetChange(savedDatasetId);
+      let retries = 0;
+      const maxRetries = 4;
+      const tryLoad = async () => {
+        try {
+          await handleDatasetChange(savedDatasetId);
+        } catch (err) {
+          if (retries < maxRetries) {
+            retries++;
+            console.log(`Backend connection failed, retrying in 2.5s (Attempt ${retries}/${maxRetries})...`);
+            setTimeout(tryLoad, 2500);
+          }
+        }
+      };
+      tryLoad();
     }
   }, []);
 
@@ -66,6 +79,7 @@ export default function Home() {
     } catch (error) {
       console.error('Failed to load workspace', error);
       setUploadError('Failed to load workspace state.');
+      throw error;
     } finally {
       setChatLoading(false);
     }
@@ -272,7 +286,19 @@ export default function Home() {
                       <Activity className="w-4 h-4" />
                       Upload Dataset
                     </button>
-                    {uploadError && <p className="mt-4 text-[10px] text-rose-400 font-bold">{uploadError}</p>}
+                    {uploadError && (
+                      <div className="mt-4 flex flex-col gap-2">
+                        <p className="text-[10px] text-rose-400 font-bold">{uploadError}</p>
+                        {datasetId && (
+                          <button
+                            onClick={() => handleDatasetChange(datasetId).catch(() => {})}
+                            className="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/35 border border-indigo-500/30 text-indigo-300 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                          >
+                            Retry Loading Workspace
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 }
               />

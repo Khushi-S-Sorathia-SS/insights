@@ -19,7 +19,7 @@ from langchain_core.messages import HumanMessage
 from langchain_openai import AzureChatOpenAI
 from deepagents import HarnessProfileConfig, create_deep_agent, register_harness_profile
 from langchain_daytona import DaytonaSandbox
-from daytona import Daytona
+from daytona import Daytona, DaytonaConfig
 
 from src.app.config.settings import get_settings
 from src.app.models.session import DatasetMetadata
@@ -140,8 +140,9 @@ def generate_analysis_code(
         - "output": str — natural language response from the agent
         - "chart_schemas": list[dict] — parsed chart schema objects (may be empty)
     """
-    # Initialise a fresh Daytona sandbox per request for isolation
-    daytona_client = Daytona()
+    # Initialise a fresh Daytona sandbox per request for isolation using explicit config
+    daytona_config = DaytonaConfig(api_key=settings.DAYTONA_API_KEY)
+    daytona_client = Daytona(config=daytona_config)
     sandbox = daytona_client.create()
     backend = DaytonaSandbox(sandbox=sandbox)
 

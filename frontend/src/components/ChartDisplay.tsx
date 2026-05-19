@@ -26,7 +26,8 @@ const CHART_REGISTRY: Record<string, any> = {
   line: { wrapper: LineChart, element: Line, hasAxes: true },
   area: { wrapper: AreaChart, element: Area, hasAxes: true },
   scatter: { wrapper: ScatterChart, element: Scatter, hasAxes: true },
-  pie: { wrapper: PieChart, element: Pie, hasAxes: false, isPolar: false },
+  pie: { wrapper: PieChart, element: Pie, hasAxes: false, isPolar: false, isDonut: false },
+  donut: { wrapper: PieChart, element: Pie, hasAxes: false, isPolar: false, isDonut: true },
   radar: { wrapper: RadarChart, element: Radar, hasAxes: false, isPolar: true }
 };
 
@@ -188,6 +189,9 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
     }
 
     // Render for Pie/Donut charts
+    const defaultInnerRadius = config.isDonut ? 60 : 0;
+    const defaultOuterRadius = 90;
+
     return (
       <ResponsiveContainer width="100%" height="100%">
         <WrapperComponent>
@@ -197,8 +201,8 @@ export default function ChartDisplay({ schema }: ChartDisplayProps) {
             nameKey={xKey}
             cx="50%"
             cy="50%"
-            innerRadius={schema.innerRadius || 60}
-            outerRadius={schema.outerRadius || 90}
+            innerRadius={schema.innerRadius !== undefined ? schema.innerRadius : defaultInnerRadius}
+            outerRadius={schema.outerRadius !== undefined ? schema.outerRadius : defaultOuterRadius}
             paddingAngle={4}
             stroke="rgba(15, 23, 42, 0.8)"
             strokeWidth={2}

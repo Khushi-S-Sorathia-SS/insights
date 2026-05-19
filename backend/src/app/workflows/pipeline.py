@@ -133,7 +133,20 @@ async def process_chat_request(
         .filter(Dashboard.dataset_id == ds_uuid)
         .order_by(Dashboard.version.desc(), Dashboard.created_at.desc())
     )
-    dashboard_record = dash_result.scalars().first()
+    latest_dashboard = dash_result.scalars().first()
+
+    if latest_dashboard:
+        # Fetch the active dashboard record as designated by active_version
+        active_dash_result = await db.execute(
+            select(Dashboard)
+            .filter(
+                Dashboard.dataset_id == ds_uuid,
+                Dashboard.version == latest_dashboard.active_version,
+            )
+        )
+        dashboard_record = active_dash_result.scalars().first()
+        if not dashboard_record:
+            dashboard_record = latest_dashboard
 
     if dashboard_record:
         comp_result = await db.execute(
@@ -205,6 +218,7 @@ async def process_chat_request(
 
     # ── Update dashboard if charts were produced ──────────────────────────────
     new_dash_id: Optional[uuid.UUID] = None
+    response_version: Optional[int] = None
 
     if dashboard_record and chart_schemas:
         new_dash_id, id_mapping = await create_dashboard_version(
@@ -217,10 +231,26 @@ async def process_chat_request(
             if old_id and old_id in id_mapping:
                 schema["replace_id"] = id_mapping[old_id]
 
-        await apply_dashboard_changes(db, new_dash_id, chart_schemas, output_text)
+        await apply_dashboard_changes(db, new_dash_id, chart_schemas, output_text, intent=intent)
 
-        dashboard_record.active_version += 1
-        dashboard_record.updated_at = datetime.utcnow()
+        # Fetch the newly created dashboard to get the correct version number
+        new_dash_result = await db.execute(
+            select(Dashboard).filter(Dashboard.id == new_dash_id)
+        )
+        new_dash = new_dash_result.scalars().first()
+        if new_dash:
+            response_version = new_dash.version
+            # Propagate the active version across all dashboard records for consistency
+            from sqlalchemy import update
+            await db.execute(
+                update(Dashboard)
+                .filter(Dashboard.dataset_id == ds_uuid)
+                .values(active_version=new_dash.version)
+            )
+            await db.commit()
+    else:
+        if dashboard_record:
+            response_version = dashboard_record.active_version
 
     # ── Persist assistant message ──────────────────────────────────────────────
     assistant_msg = ChatMessage(
@@ -247,5 +277,5 @@ async def process_chat_request(
         chart_schema=chart_schemas[0] if chart_schemas else None,
         execution_time_ms=0,
         dashboard_id=response_dashboard_id,
-        version=dashboard_record.active_version if dashboard_record else None,
+        version=response_version,
     )

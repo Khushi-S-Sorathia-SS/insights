@@ -153,4 +153,28 @@ CHART_TEMPLATE_SEEDS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "donut",
+        "definition_json": {
+            "type": "donut",
+            "description": "Donut chart for showing proportions in a ring",
+            "required_fields": {
+                "type": "donut",
+                "title": "string - descriptive title",
+                "data": "array of objects with name and value keys",
+                "xAxis": "string - key name for label",
+                "yAxis": "string - key name for value",
+            },
+            "example": {
+                "type": "donut",
+                "title": "Distribution",
+                "data": [
+                    {"name": "A", "value": 30},
+                    {"name": "B", "value": 70},
+                ],
+                "xAxis": "name",
+                "yAxis": "value",
+            },
+        },
+    },
 ]
