@@ -63,3 +63,7 @@ postgres-data/
 # Deployment
 .vercel
 .netlify
+
+backend/.env
+frontend/.env
+
